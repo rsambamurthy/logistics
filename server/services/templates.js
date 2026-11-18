@@ -123,3 +123,18 @@ export function customerQuoteEmail({ rfq, customer, quote, mb }) {
     ...simple({ greet: `Dear ${customer?.contact || customer?.name || 'Sir/Madam'},`, mb, paragraphs: [`Thank you for your enquiry${rfq.requester_ref ? ` (your ref ${rfq.requester_ref})` : ''}. Please find attached our quotation ${quote.ref} for ${routeText(rfq)}.`, `Total: ${quote.currency} ${Number(quote.snapshot?.totals?.grand_total || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}${quote.valid_until ? `, valid until ${new Date(quote.valid_until).toDateString()}` : ''}.`, 'Please reply to confirm and we will proceed with the booking.'] }),
   };
 }
+
+export function quoteFollowupEmail({ rfq, customer, quote, mb }) {
+  const total = `${quote.currency} ${Number(quote.snapshot?.totals?.grand_total || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
+  return {
+    subject: `Follow-up: quotation ${quote.ref} — ${routeText(rfq)}`,
+    ...simple({
+      greet: `Dear ${customer?.contact || customer?.name || 'Sir/Madam'},`,
+      mb,
+      paragraphs: [
+        `Following up on our quotation ${quote.ref} for ${routeText(rfq)} (${total})${quote.valid_until ? `, valid until ${new Date(quote.valid_until).toDateString()}` : ''}.`,
+        'Please let us know if you would like to go ahead, or if anything needs to change. We are happy to revise the quote.',
+      ],
+    }),
+  };
+}

@@ -118,6 +118,7 @@ export function Table({ columns, rows, empty = 'Nothing here yet', onRowClick, r
 
 const STATUS_COLORS = {
   draft: 'grey', pending: 'grey', sent: 'blue', reminded: 'amber', replied: 'green', quoting: 'blue', quoted: 'purple', awarded: 'green', closed: 'grey', failed: 'red', declined: 'red',
+  lost: 'red', expired: 'grey', superseded: 'grey', new: 'amber', enquiry: 'amber', requester: 'purple',
   parsed: 'green', parsing: 'blue', error: 'red', no_quote: 'amber', unmatched: 'amber', ignored: 'grey', accepted: 'green', cancelled: 'grey',
 };
 export function Badge({ children, color }) {

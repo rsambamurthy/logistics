@@ -202,6 +202,8 @@ function PricingSettings({ data, onSaved }) {
         { key: 'floor_margin_pct', label: 'Minimum margin % (needs approval below)', type: 'number' },
         { key: 'default_tax_pct', label: 'GST % on INR quotes', type: 'number' },
         { key: 'quote_validity_days', label: 'Customer quote validity (days)', type: 'number' },
+        { key: 'auto_followup', label: 'Follow-up', type: 'checkbox', checkLabel: 'Email the requester before a quote expires' },
+        { key: 'followup_days_before_expiry', label: 'Days before expiry to follow up', type: 'number' },
         { key: 'terms', label: 'Default terms on quotations', type: 'textarea', span: 5, rows: 4 },
       ]} />
       <h4>Exchange rates</h4>

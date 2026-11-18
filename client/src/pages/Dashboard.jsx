@@ -24,7 +24,7 @@ export default function Dashboard() {
           <Stat label="Rate cards expiring in 7 days" value={stats.data.rate_cards_expiring} tone={stats.data.rate_cards_expiring ? 'warn' : ''} />
         </div>
       )}
-      <Card title="All RFQs" actions={<Select value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="All statuses" options={['new', 'draft', 'sent', 'quoting', 'quoted', 'awarded', 'closed']} />}>
+      <Card title="All RFQs" actions={<Select value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="All statuses" options={['new', 'draft', 'sent', 'quoting', 'quoted', 'awarded', 'lost', 'expired', 'closed']} />}>
         {list.loading ? <Loading /> : list.error ? <ErrorBox error={list.error} /> : (
           <Table
             rows={rows}

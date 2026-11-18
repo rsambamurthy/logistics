@@ -11,6 +11,7 @@ import Dashboard from './pages/Dashboard.jsx';
 import RfqNew from './pages/RfqNew.jsx';
 import RfqDetail from './pages/RfqDetail.jsx';
 import Inbox from './pages/Inbox.jsx';
+import Reports from './pages/Reports.jsx';
 import Settings from './pages/Settings.jsx';
 
 function Shell({ user, tenant, access, onLogout }) {
@@ -18,6 +19,7 @@ function Shell({ user, tenant, access, onLogout }) {
     ['/', 'RFQs'],
     ['/rfqs/new', '+ New RFQ'],
     ['/inbox', 'Unmatched mail'],
+    ['/reports', 'Reports'],
     ['/settings', 'Settings'],
   ];
   return (
@@ -38,6 +40,7 @@ function Shell({ user, tenant, access, onLogout }) {
           <Route path="/rfqs/new" element={<RfqNew />} />
           <Route path="/rfqs/:id" element={<RfqDetail />} />
           <Route path="/inbox" element={<Inbox />} />
+          <Route path="/reports" element={<Reports />} />
           <Route path="/agents" element={<Navigate to="/settings/partner-agents" replace />} />
           <Route path="/customers" element={<Navigate to="/settings/customers" replace />} />
           <Route path="/rate-cards" element={<Navigate to="/settings/rate-cards" replace />} />

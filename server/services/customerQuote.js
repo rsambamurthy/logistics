@@ -6,7 +6,7 @@ import { BASES } from '../engines/charges.js';
 import { getFx, getSetting } from './settings.js';
 import { loadRfq } from './rfq.js';
 import { getMailbox, sendMail } from './mail.js';
-import { customerQuoteEmail, routeText } from './templates.js';
+import { customerQuoteEmail, quoteFollowupEmail, routeText } from './templates.js';
 
 export async function previewCustomerQuote(rfqId, { selection, currency, margin_pct, tax_pct, leg_margins }) {
   const data = await loadRfq(rfqId);
@@ -116,25 +116,72 @@ export async function renderPdf(quoteId) {
   return done;
 }
 
-export async function emailCustomerQuote(quoteId, { to, cc, subject, text }) {
-  const quote = await one('SELECT * FROM customer_quotes WHERE id=$1', [quoteId]);
+/** Send something to the RFQ's requester, inside their own enquiry thread when there is one. */
+async function sendToRequester(quote, build, { to, cc, subject, text, attachments, kind }) {
   const rfq = await one('SELECT * FROM rfqs WHERE id=$1', [quote.rfq_id]);
   const requester = rfq.requester_id ? await one('SELECT * FROM agents WHERE id=$1', [rfq.requester_id]) : null;
   const source = rfq.source_email_id ? await one('SELECT message_id, subject FROM emails WHERE id=$1', [rfq.source_email_id]) : null;
   const mb = await getMailbox(rfq.mailbox_id);
   if (!mb) throw new Error('No mailbox configured');
-  const tpl = customerQuoteEmail({ rfq, customer: requester && { name: requester.company, contact: requester.contact }, quote, mb });
+  const tpl = build({ rfq, customer: requester && { name: requester.company, contact: requester.contact }, quote, mb });
   const recipient = to || requester?.email;
   if (!recipient) throw new Error('Requester email missing');
-  // answer inside the requester's own email thread when the enquiry came by email
   const threadSubject = source?.subject ? `${/^re:/i.test(source.subject) ? '' : 'Re: '}${source.subject} — ${quote.ref}` : null;
-  const pdf = await renderPdf(quoteId);
   await sendMail(
     mb,
-    { to: recipient, cc, subject: subject || threadSubject || tpl.subject, text: text || tpl.text, html: text ? undefined : tpl.html, inReplyTo: source?.message_id || undefined, references: source?.message_id ? [source.message_id] : undefined, attachments: [{ filename: `${quote.ref}.pdf`, content: pdf }] },
-    { kind: 'customer_quote', rfq_id: rfq.id }
+    { to: recipient, cc, subject: subject || threadSubject || tpl.subject, text: text || tpl.text, html: text ? undefined : tpl.html, inReplyTo: source?.message_id || undefined, references: source?.message_id ? [source.message_id] : undefined, attachments },
+    { kind, rfq_id: rfq.id }
   );
+  return rfq;
+}
+
+export async function emailCustomerQuote(quoteId, opts = {}) {
+  const quote = await one('SELECT * FROM customer_quotes WHERE id=$1', [quoteId]);
+  const pdf = await renderPdf(quoteId);
+  const rfq = await sendToRequester(quote, customerQuoteEmail, { ...opts, attachments: [{ filename: `${quote.ref}.pdf`, content: pdf }], kind: 'customer_quote' });
   await q("UPDATE customer_quotes SET status='sent', sent_at=now() WHERE id=$1", [quoteId]);
   await q("UPDATE rfqs SET status=CASE WHEN status IN ('new','sent','quoting','draft') THEN 'quoted' ELSE status END WHERE id=$1", [rfq.id]);
   return true;
+}
+
+export async function followUpQuote(quoteId) {
+  const quote = await one('SELECT * FROM customer_quotes WHERE id=$1', [quoteId]);
+  if (quote.status !== 'sent') throw Object.assign(new Error('Only sent quotes can be followed up'), { status: 400 });
+  const pdf = await renderPdf(quoteId);
+  await sendToRequester(quote, quoteFollowupEmail, { attachments: [{ filename: `${quote.ref}.pdf`, content: pdf }], kind: 'quote_followup' });
+  await q('UPDATE customer_quotes SET followup_count=followup_count+1, last_followup_at=now() WHERE id=$1', [quoteId]);
+  return true;
+}
+
+export const LOST_REASONS = ['Price too high', 'Lost to a competitor', 'Transit time / routing', 'Slow response', 'Shipment cancelled or postponed', 'No reply from customer', 'Other'];
+
+export async function markLost(quoteId, { reason, note, competitor_price }) {
+  const quote = await one('SELECT * FROM customer_quotes WHERE id=$1', [quoteId]);
+  await q("UPDATE customer_quotes SET status='lost', lost_reason=$1, lost_note=$2, competitor_price=$3, decided_at=now() WHERE id=$4", [reason || 'Other', note || null, competitor_price || null, quoteId]);
+  // the RFQ is lost only if no other quote on it is still open or won
+  const open = await one("SELECT count(*)::int AS n FROM customer_quotes WHERE rfq_id=$1 AND status IN ('draft','sent','accepted')", [quote.rfq_id]);
+  if (!open.n) await q("UPDATE rfqs SET status='lost' WHERE id=$1", [quote.rfq_id]);
+  return true;
+}
+
+/** Scheduled: follow up quotes about to expire, then mark expired ones. */
+export async function quoteHousekeeping() {
+  const pricing = await getSetting('pricing');
+  let followed = 0;
+  if (pricing.auto_followup !== false) {
+    const due = await q(
+      `SELECT id FROM customer_quotes WHERE status='sent' AND followup_count=0 AND valid_until IS NOT NULL
+       AND valid_until <= current_date + $1::int AND valid_until >= current_date AND sent_at < now() - interval '1 day'`,
+      [Number(pricing.followup_days_before_expiry ?? 2)]
+    );
+    for (const d of due) {
+      try { await followUpQuote(d.id); followed++; } catch (e) { console.error('follow-up failed', d.id, e.message); }
+    }
+  }
+  const expired = await q("UPDATE customer_quotes SET status='expired', decided_at=now() WHERE status='sent' AND valid_until < current_date RETURNING rfq_id");
+  for (const e of expired) {
+    const open = await one("SELECT count(*)::int AS n FROM customer_quotes WHERE rfq_id=$1 AND status IN ('draft','sent','accepted')", [e.rfq_id]);
+    if (!open.n) await q("UPDATE rfqs SET status='expired' WHERE id=$1 AND status='quoted'", [e.rfq_id]);
+  }
+  return { followed, expired: expired.length };
 }

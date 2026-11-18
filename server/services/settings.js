@@ -22,6 +22,8 @@ export const DEFAULTS = {
     floor_margin_pct: 3,
     default_tax_pct: 18,
     quote_validity_days: 7,
+    auto_followup: true,
+    followup_days_before_expiry: 2,
     terms: 'Rates subject to space and equipment availability at time of booking.\nCharges not mentioned are payable at actuals.\nValidity as stated; surcharges as per carrier at time of shipment.',
   },
   ai: {

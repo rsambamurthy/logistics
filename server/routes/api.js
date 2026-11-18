@@ -11,7 +11,8 @@ import { ingestManual, parseEmail, assignEmail, saveQuote } from '../services/re
 import { createRfqFromEmail } from '../services/intake.js';
 import { listCards, getCard, saveCard, copyCard, deleteCard, applyRateCards, templateWorkbook, importRateCards, expiringCount } from '../services/rateCards.js';
 import { parseEnquiry } from '../services/ai.js';
-import { previewCustomerQuote, saveCustomerQuote, renderPdf, emailCustomerQuote } from '../services/customerQuote.js';
+import { previewCustomerQuote, saveCustomerQuote, renderPdf, emailCustomerQuote, followUpQuote, markLost, LOST_REASONS } from '../services/customerQuote.js';
+import { reports } from '../services/reports.js';
 import { signUp, getTenant, accessState, usage, assertCanCreateRfq } from '../services/tenants.js';
 import billing from './billing.js';
 import platform from './platform.js';
@@ -271,9 +272,14 @@ r.get('/customer-quotes/:id/pdf', h(async (req, res) => {
   res.send(pdf);
 }));
 r.post('/customer-quotes/:id/send', h(async (req, res) => { await emailCustomerQuote(id(req), req.body || {}); res.json({ ok: true }); }));
+r.post('/customer-quotes/:id/follow-up', h(async (req, res) => { await followUpQuote(id(req)); res.json({ ok: true }); }));
+r.post('/customer-quotes/:id/lost', h(async (req, res) => { await markLost(id(req), req.body); res.json({ ok: true }); }));
+r.get('/lost-reasons', (req, res) => res.json(LOST_REASONS));
+r.get('/reports', h(async (req, res) => res.json(await reports(req.query))));
 r.post('/customer-quotes/:id/accept', h(async (req, res) => {
   const cq = await one('SELECT * FROM customer_quotes WHERE id=$1', [id(req)]);
-  await q("UPDATE customer_quotes SET status='accepted', accepted_at=now() WHERE id=$1", [cq.id]);
+  await q("UPDATE customer_quotes SET status='accepted', accepted_at=now(), decided_at=now() WHERE id=$1", [cq.id]);
+  await q("UPDATE customer_quotes SET status='superseded' WHERE rfq_id=$1 AND id<>$2 AND status IN ('draft','sent')", [cq.rfq_id, cq.id]);
   const results = req.body.award === false ? [] : await awardRfq(cq.rfq_id, cq.selection, { sendRegrets: req.body.sendRegrets !== false, note: req.body.note });
   res.json({ ok: true, results });
 }));

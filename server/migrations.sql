@@ -69,3 +69,11 @@ CREATE TABLE IF NOT EXISTS rate_card_lines (
 );
 ALTER TABLE rfq_invites ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'email';
 ALTER TABLE agent_quotes ADD COLUMN IF NOT EXISTS rate_card_ids INT[];
+
+-- 5. Quote follow-up and outcome
+ALTER TABLE customer_quotes ADD COLUMN IF NOT EXISTS lost_reason TEXT;
+ALTER TABLE customer_quotes ADD COLUMN IF NOT EXISTS lost_note TEXT;
+ALTER TABLE customer_quotes ADD COLUMN IF NOT EXISTS competitor_price NUMERIC;
+ALTER TABLE customer_quotes ADD COLUMN IF NOT EXISTS followup_count INT NOT NULL DEFAULT 0;
+ALTER TABLE customer_quotes ADD COLUMN IF NOT EXISTS last_followup_at TIMESTAMPTZ;
+ALTER TABLE customer_quotes ADD COLUMN IF NOT EXISTS decided_at TIMESTAMPTZ;

@@ -372,6 +372,8 @@ function CustomerTab({ data, selection, reload, goCompare }) {
   const [preview, setPreview] = useState(null);
   const [busy, run] = useAction();
   const [sendTo, setSendTo] = useState(null);
+  const [lost, setLost] = useState(null);
+  const reasons = useLoad(() => api.get('/lost-reasons'));
   useEffect(() => {
     if (!settings.data || opts || customer.loading) return;
     const p = settings.data.pricing;
@@ -438,13 +440,15 @@ function CustomerTab({ data, selection, reload, goCompare }) {
             { label: 'Total', render: (r) => money(r.snapshot?.totals?.grand_total, r.currency) },
             { label: 'Profit', render: (r) => `${money(r.snapshot?.totals?.profit, r.currency)} (${r.snapshot?.totals?.margin_pct_effective}%)` },
             { label: 'Valid until', render: (r) => fmtDate(r.valid_until) },
-            { label: 'Status', render: (r) => <Badge>{r.status}</Badge> },
+            { label: 'Status', render: (r) => <><Badge>{r.status}</Badge>{r.followup_count ? <div className="small muted">followed up {r.followup_count}×</div> : null}{r.lost_reason && <div className="small err">{r.lost_reason}{r.lost_note ? ` — ${r.lost_note}` : ''}</div>}</> },
             {
               label: '', render: (r) => (
-                <div className="row gap-sm">
+                <div className="row gap-sm wrap">
+                  {r.status === 'sent' && <Button small variant="ghost" busy={busy === `f${r.id}`} onClick={() => run(`f${r.id}`, async () => { await api.post(`/customer-quotes/${r.id}/follow-up`); await reload(); }, 'Follow-up email sent')}>Follow up</Button>}
+                  {['sent', 'expired', 'draft'].includes(r.status) && <Button small variant="ghost" onClick={() => setLost({ quote: r, reason: '', note: '' })}>Lost</Button>}
                   <a className="btn btn-ghost btn-sm" href={`/api/customer-quotes/${r.id}/pdf`} target="_blank" rel="noreferrer">PDF</a>
                   <Button small variant="ghost" onClick={() => setSendTo({ quote: r, to: customer.data?.email || '' })}>Email</Button>
-                  {r.status !== 'accepted' && <Button small busy={busy === `a${r.id}`} onClick={() => run(`a${r.id}`, async () => {
+                  {['sent', 'draft', 'expired'].includes(r.status) && <Button small busy={busy === `a${r.id}`} onClick={() => run(`a${r.id}`, async () => {
                     if (!confirm('Mark accepted and email confirmations to the winning agents (and regret emails to the others)?')) return;
                     const res = await api.post(`/customer-quotes/${r.id}/accept`, {});
                     await reload();
@@ -457,6 +461,13 @@ function CustomerTab({ data, selection, reload, goCompare }) {
           ]}
         />
       </Card>
+      {lost && (
+        <Modal title={`Mark ${lost.quote.ref} as lost`} onClose={() => setLost(null)} footer={<Button busy={busy === 'lost'} disabled={!lost.reason} onClick={() => run('lost', async () => { await api.post(`/customer-quotes/${lost.quote.id}/lost`, lost); setLost(null); await reload(); }, 'Marked as lost')}>Save</Button>}>
+          <Field label="Why was it lost?"><Select placeholder="— choose —" options={reasons.data || []} value={lost.reason} onChange={(e) => setLost({ ...lost, reason: e.target.value })} /></Field>
+          <Field label={`Competitor's price, if known (${lost.quote.currency})`}><Input type="number" value={lost.competitor_price} onChange={(e) => setLost({ ...lost, competitor_price: e.target.value })} /></Field>
+          <Field label="Note"><Textarea rows={3} value={lost.note} onChange={(e) => setLost({ ...lost, note: e.target.value })} /></Field>
+        </Modal>
+      )}
       {sendTo && (
         <Modal title={`Email ${sendTo.quote.ref} to ${rfq.requester_name || 'requester'}`} onClose={() => setSendTo(null)} footer={<Button busy={busy === 'send'} onClick={() => run('send', async () => { await api.post(`/customer-quotes/${sendTo.quote.id}/send`, { to: sendTo.to }); setSendTo(null); await reload(); }, 'Quote emailed')}>Send with PDF</Button>}>
           <Field label="To"><Input value={sendTo.to} onChange={(e) => setSendTo({ ...sendTo, to: e.target.value })} /></Field>
@@ -477,7 +488,7 @@ function ShipmentTab({ data, reload }) {
   const save = () => run('x', async () => { await api.put(`/rfqs/${data.rfq.id}`, { ...f, deadline: f.deadline ? new Date(f.deadline).toISOString() : null }); await reload(); }, 'Saved');
   return (
     <Card title="Shipment details" actions={<>
-      <Select value={data.rfq.status} options={['new', 'draft', 'sent', 'quoting', 'quoted', 'awarded', 'closed', 'cancelled']} onChange={(e) => run('st', async () => { await api.post(`/rfqs/${data.rfq.id}/status`, { status: e.target.value }); await reload(); }, 'Status updated')} />
+      <Select value={data.rfq.status} options={['new', 'draft', 'sent', 'quoting', 'quoted', 'awarded', 'lost', 'expired', 'closed', 'cancelled']} onChange={(e) => run('st', async () => { await api.post(`/rfqs/${data.rfq.id}/status`, { status: e.target.value }); await reload(); }, 'Status updated')} />
       <Button busy={busy === 'x'} onClick={save}>Save</Button>
     </>}>
       <p className="muted small">Changes apply to future emails; already-sent RFQ emails are not changed.</p>

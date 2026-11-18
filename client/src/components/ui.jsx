@@ -224,12 +224,12 @@ export function useAction() {
 export const Loading = () => <div className="loading"><Spinner /> Loading…</div>;
 export const ErrorBox = ({ error }) => <div className="alert alert-red">{error}</div>;
 
-/** Vertical sub-menu for sections inside a page (e.g. Settings). items: [{ to, label, hint }] */
+/** Vertical sub-menu for sections inside a page (e.g. Settings). items: [{ to, label, hint }] or [{ group }] headings */
 export function SideMenu({ title, items }) {
   return (
     <nav className="subnav">
       {title && <div className="subnav-title">{title}</div>}
-      {items.map((i) => (
+      {items.map((i) => i.group ? <div key={`g-${i.group}`} className="subnav-group">{i.group}</div> : (
         <NavLink key={i.to} to={i.to} className="subnav-item">
           <span>{i.label}</span>
           {i.hint && <small>{i.hint}</small>}

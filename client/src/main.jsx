@@ -9,8 +9,6 @@ import Login from './pages/Login.jsx';
 import Dashboard from './pages/Dashboard.jsx';
 import RfqNew from './pages/RfqNew.jsx';
 import RfqDetail from './pages/RfqDetail.jsx';
-import Agents from './pages/Agents.jsx';
-import Customers from './pages/Customers.jsx';
 import Inbox from './pages/Inbox.jsx';
 import Settings from './pages/Settings.jsx';
 
@@ -19,8 +17,6 @@ function Shell({ user, onLogout }) {
     ['/', 'RFQs'],
     ['/rfqs/new', '+ New RFQ'],
     ['/inbox', 'Unmatched mail'],
-    ['/agents', 'Partner agents'],
-    ['/customers', 'Customers'],
     ['/settings', 'Settings'],
   ];
   return (
@@ -39,10 +35,10 @@ function Shell({ user, onLogout }) {
           <Route path="/rfqs/new" element={<RfqNew />} />
           <Route path="/rfqs/:id" element={<RfqDetail />} />
           <Route path="/inbox" element={<Inbox />} />
-          <Route path="/agents" element={<Agents />} />
-          <Route path="/customers" element={<Customers />} />
+          <Route path="/agents" element={<Navigate to="/settings/partner-agents" replace />} />
+          <Route path="/customers" element={<Navigate to="/settings/customers" replace />} />
           <Route path="/rate-cards" element={<Navigate to="/settings/rate-cards" replace />} />
-          <Route path="/settings" element={<Navigate to="/settings/mailboxes" replace />} />
+          <Route path="/settings" element={<Navigate to="/settings/partner-agents" replace />} />
           <Route path="/settings/:section" element={<Settings user={user} />} />
           <Route path="*" element={<Navigate to="/" />} />
         </Routes>

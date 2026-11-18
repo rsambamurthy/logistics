@@ -1,31 +1,41 @@
 import { useState } from 'react';
 import { useParams } from 'react-router-dom';
 import RateCards from './RateCards.jsx';
+import Agents from './Agents.jsx';
+import Customers from './Customers.jsx';
 import { api } from '../api.js';
 import { useMeta } from '../components/meta.jsx';
 import { PageHeader, Card, Table, Button, Modal, FormGrid, Field, Input, Select, Check, Badge, SideMenu, Loading, useLoad, useAction, fmtDateTime } from '../components/ui.jsx';
 
+// Settings holds everything that is not a transaction: contacts, pricing data and system setup.
 const SECTIONS = [
-  { key: 'mailboxes', label: 'RFQ mailboxes', hint: 'Addresses used to email agents and read replies' },
+  { group: 'Contacts' },
+  { key: 'partner-agents', label: 'Partner agents', hint: 'Who you ask for rates' },
+  { key: 'customers', label: 'Customers', hint: 'Who asks you for rates' },
+  { group: 'Pricing' },
   { key: 'rate-cards', label: 'Rate cards', hint: 'Stored buy rates that price RFQs instantly' },
   { key: 'pricing', label: 'Pricing & FX', hint: 'Margins, tax, validity, exchange rates' },
+  { group: 'System' },
+  { key: 'mailboxes', label: 'RFQ mailboxes', hint: 'Addresses used to email agents and read replies' },
   { key: 'company', label: 'Company', hint: 'Details printed on quotations' },
   { key: 'ai', label: 'AI', hint: 'Reading replies and enquiries' },
   { key: 'users', label: 'Users', hint: 'Who can sign in' },
 ];
 
 export default function Settings({ user }) {
-  const { section = 'mailboxes' } = useParams();
+  const { section = 'partner-agents' } = useParams();
   const s = useLoad(() => api.get('/settings'));
   const admin = user.role === 'admin';
-  const current = SECTIONS.find((x) => x.key === section) || SECTIONS[0];
+  const current = SECTIONS.find((x) => x.key === section) || SECTIONS[1];
   return (
     <div className="with-subnav">
-      <SideMenu title="Settings" items={SECTIONS.map((x) => ({ to: `/settings/${x.key}`, label: x.label, hint: x.hint }))} />
+      <SideMenu title="Settings" items={SECTIONS.map((x) => (x.group ? x : { to: `/settings/${x.key}`, label: x.label, hint: x.hint }))} />
       <div className="subnav-body">
         {!admin && <div className="alert alert-amber">Only admins can change settings.</div>}
         {current.key === 'mailboxes' && <><PageHeader title="RFQ mailboxes" /><Mailboxes /></>}
         {current.key === 'rate-cards' && <RateCards />}
+        {current.key === 'partner-agents' && <Agents />}
+        {current.key === 'customers' && <Customers />}
         {current.key === 'users' && <><PageHeader title="Users" /><Users admin={admin} /></>}
         {['ai', 'company', 'pricing'].includes(current.key) && (!s.data ? <Loading /> : (
           <>

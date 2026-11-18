@@ -143,7 +143,7 @@ export function AgentPicker({ rfq, invites, onChange, locked = [] }) {
               <b>+ {a.company}</b><span className="muted small">{a.ports || a.country}</span>
             </button>
           ))}
-          {!filtered.length && <span className="muted">No match. Add agents on the Partner agents page.</span>}
+          {!filtered.length && <span className="muted">No match. Add agents in Settings → Partner agents.</span>}
         </div>
       )}
     </div>

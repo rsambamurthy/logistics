@@ -11,7 +11,7 @@ export function Tenants() {
   const act = (t, body, msg) => run(`${t.id}`, async () => { await api.put(`/platform/tenants/${t.id}`, body); await list.reload(); }, msg);
   return (
     <>
-      <PageHeader title="Tenants" sub="Every company using AgentQuote" />
+      <PageHeader title="Tenants" sub="Every company using Quayly" />
       <Card>
         {list.loading ? <Loading /> : list.error ? <ErrorBox error={list.error} /> : (
           <Table rows={list.data} onRowClick={(t) => setEdit({ ...t, trial_ends_at: t.trial_ends_at?.slice(0, 10), current_period_end: t.current_period_end?.slice(0, 10) })} columns={[

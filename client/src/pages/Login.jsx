@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { api } from '../api.js';
 import { Button, Field, Input, Select } from '../components/ui.jsx';
+import { Brand, PRODUCT } from '../components/Brand.jsx';
 
 export default function Login({ onDone }) {
   const [mode, setMode] = useState(new URLSearchParams(location.search).has('signup') ? 'signup' : 'signin');
@@ -25,7 +26,8 @@ export default function Login({ onDone }) {
   return (
     <div className="login-bg">
       <form className="login card" onSubmit={submit}>
-        <div className="brand big"><span className="logo">AQ</span> AgentQuote</div>
+        <Brand big />
+        <p className="tagline">{PRODUCT.tagline}</p>
         <p className="muted">{signup ? 'Create your company account. Free 14-day trial, no card needed.' : 'Sign in to continue.'}</p>
         {signup && <>
           <Field label="Company name"><Input value={f.company} onChange={set('company')} required /></Field>

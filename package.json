@@ -1,9 +1,9 @@
 {
-  "name": "agentquote",
+  "name": "quayly",
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "AgentQuote AI - quote sourcing and comparison for C&F agents",
+  "description": "Quayly - freight quote sourcing and comparison for C&F agents",
   "engines": {
     "node": ">=20"
   },

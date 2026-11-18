@@ -1,4 +1,6 @@
-# AgentQuote AI
+# Quayly
+
+by Integratatech.ai. Freight quotation software for C&F agents and forwarders. Runs at `quayly.integratatech.ai`.
 
 Quote sourcing and comparison for C&F agents. Send one RFQ to many partner agents by email, let AI read their replies (email text, PDF, Excel, scans), compare like-for-like, add margin and send the customer a quotation.
 

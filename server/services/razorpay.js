@@ -1,5 +1,6 @@
 // Minimal Razorpay Subscriptions client (REST, no SDK). Keys come from environment variables.
 import crypto from 'node:crypto';
+import { PRODUCT } from '../lib/brand.js';
 
 const API = 'https://api.razorpay.com/v1';
 export const razorpayEnabled = () => !!(process.env.RAZORPAY_KEY_ID && process.env.RAZORPAY_KEY_SECRET);
@@ -21,7 +22,7 @@ export const createPlan = (plan) =>
   call('POST', '/plans', {
     period: 'monthly',
     interval: 1,
-    item: { name: `AgentQuote ${plan.name} (per user)`, amount: Math.round(Number(plan.price_inr) * 100), currency: 'INR' },
+    item: { name: `${PRODUCT.name} ${plan.name} (per user)`, amount: Math.round(Number(plan.price_inr) * 100), currency: 'INR' },
     notes: { plan_code: plan.code },
   });
 

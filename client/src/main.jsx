@@ -6,6 +6,7 @@ import { api } from './api.js';
 import { ToastProvider, Loading } from './components/ui.jsx';
 import { MetaProvider } from './components/meta.jsx';
 import { SessionCtx } from './components/session.js';
+import { Brand } from './components/Brand.jsx';
 import Login from './pages/Login.jsx';
 import Dashboard from './pages/Dashboard.jsx';
 import RfqNew from './pages/RfqNew.jsx';
@@ -25,7 +26,7 @@ function Shell({ user, tenant, access, onLogout }) {
   return (
     <div className="shell">
       <aside className="side">
-        <div className="brand"><span className="logo">AQ</span> AgentQuote</div>
+        <Brand />
         <nav>{nav.map(([to, label]) => <NavLink key={to} to={to} end={to === '/' || to === '/rfqs/new'} className="nav">{label}</NavLink>)}</nav>
         <div className="side-foot">
           <div><b>{tenant?.name}</b></div>

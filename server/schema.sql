@@ -1,4 +1,4 @@
--- AgentQuote AI schema (idempotent)
+-- Quayly schema (idempotent)
 CREATE TABLE IF NOT EXISTS users (
   id SERIAL PRIMARY KEY,
   email TEXT UNIQUE NOT NULL,

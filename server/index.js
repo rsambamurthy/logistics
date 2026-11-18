@@ -9,6 +9,7 @@ import { pollAll } from './services/mail.js';
 import { autoRemind } from './services/rfq.js';
 import { forEachTenant } from './services/tenants.js';
 import { quoteHousekeeping } from './services/customerQuote.js';
+import { PRODUCT } from './lib/brand.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -38,7 +39,7 @@ const port = Number(process.env.PORT || 3000);
 
 (async () => {
   await migrate();
-  app.listen(port, () => console.log(`AgentQuote listening on ${port}`));
+  app.listen(port, () => console.log(`${PRODUCT.name} listening on ${port}`));
   // background work runs once per tenant, inside that tenant's context
   let busy = false;
   setInterval(async () => {

@@ -1,4 +1,4 @@
-// Tenants (companies using AgentQuote): sign-up, lookup, access state and plan limits.
+// Tenants (companies using Quayly): sign-up, lookup, access state and plan limits.
 import bcrypt from 'bcryptjs';
 import { pq, pone, migrateTenant, runAsTenant, one, q } from '../db.js';
 import { setSetting } from './settings.js';

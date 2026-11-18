@@ -16,7 +16,9 @@ a { color: var(--blue); }
 .side { width: 220px; background: var(--navy); color: #cfe0f5; display: flex; flex-direction: column; padding: 18px 12px; position: sticky; top: 0; height: 100vh; }
 .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 17px; color: #fff; margin: 0 6px 22px; }
 .brand.big { color: var(--navy); font-size: 22px; margin: 0 0 6px; }
-.logo { background: var(--blue); color: #fff; border-radius: 7px; padding: 4px 7px; font-size: 13px; }
+.wordmark { font-weight: 800; letter-spacing: -0.02em; }
+.brand.big .wordmark { font-size: 28px; color: var(--navy); }
+.tagline { margin: -4px 0 4px; color: var(--muted); font-size: 13.5px; }
 .nav { display: block; padding: 9px 12px; border-radius: 7px; color: #cfe0f5; text-decoration: none; margin-bottom: 2px; }
 .nav:hover { background: rgba(255,255,255,.07); }
 .nav.active { background: var(--blue); color: #fff; }

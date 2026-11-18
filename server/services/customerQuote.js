@@ -11,6 +11,7 @@ import { getMailbox, sendMail } from './mail.js';
 import { customerQuoteEmail, quoteFollowupEmail, routeText } from './templates.js';
 import { t as tr, legLabel, basisLabel } from './i18n.js';
 import { awardRfq } from './rfq.js';
+import { PRODUCT } from '../lib/brand.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const FONT_DIR = path.join(__dirname, '..', 'fonts');
@@ -121,7 +122,7 @@ export async function renderPdf(quoteId) {
   const options = s.options || [{ label: null, rfq_id: rfq.id, sections: s.sections, totals: s.totals }];
   const multi = options.length > 1;
 
-  const doc = new PDFDocument({ size: 'A4', margin: 40 });
+  const doc = new PDFDocument({ size: 'A4', margin: 40, bufferPages: true, info: { Title: `Quotation ${quote.ref}`, Producer: PRODUCT.name } });
   const zh = quote.language === 'zh';
   const REG = zh ? 'zh' : 'Helvetica';
   const BOLD = zh ? 'zh-b' : 'Helvetica-Bold';
@@ -250,6 +251,13 @@ export async function renderPdf(quoteId) {
     if (doc.y > 720) doc.addPage();
     doc.moveDown(0.8).font(BOLD).fontSize(9).fillColor('#333').text(L('terms'), 40);
     doc.font(REG).fontSize(8.5).fillColor('#444').text(quote.terms, 40, doc.y + 2, { width: 515 });
+  }
+  // small product footer on every page
+  const range = doc.bufferedPageRange();
+  for (let i = range.start; i < range.start + range.count; i++) {
+    doc.switchToPage(i);
+    doc.page.margins.bottom = 0; // allow writing in the footer area without adding a page
+    doc.font('Helvetica').fontSize(7).fillColor('#9aa5b4').text(`Prepared with ${PRODUCT.name} · quayly.integratatech.ai`, 40, 812, { width: 515, align: 'center', lineBreak: false });
   }
   doc.end();
   return done;

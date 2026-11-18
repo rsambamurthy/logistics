@@ -50,7 +50,7 @@ export default function RfqDetail() {
   return (
     <>
       <PageHeader
-        actions={<AlternativeButton rfq={rfq} linked={d.data.linked} />}
+        actions={<div className="row gap-sm">{(d.data.jobs || []).map((j) => <Link key={j.id} className="btn btn-primary btn-sm" to={`/jobs/${j.id}`}>Job {j.ref}</Link>)}<AlternativeButton rfq={rfq} linked={d.data.linked} /></div>}
         title={<>{rfq.ref} <Badge>{rfq.status}</Badge></>}
         sub={<>{rfq.requester_name ? <><b>{rfq.requester_name}</b> <Badge color={rfq.requester_role === 'agent' ? 'blue' : 'purple'}>{rfq.requester_role === 'agent' ? 'partner agent' : 'customer'}</Badge>{rfq.requester_ref ? ` ref ${rfq.requester_ref}` : ''}</> : 'No requester'} · {rfq.mode} · {routeOf(rfq)} · {cargoOf(rfq) || ''}</>}
       />

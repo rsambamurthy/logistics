@@ -4,6 +4,7 @@ import { api } from '../api.js';
 import { PageHeader, Card, Table, Badge, Stat, Button, Loading, ErrorBox, useLoad, fmtDate, Select } from '../components/ui.jsx';
 import { routeOf } from '../components/rfq.jsx';
 import SetupGuide from '../components/SetupGuide.jsx';
+import { CutoffList } from '../components/jobs.jsx';
 
 export default function Dashboard() {
   const nav = useNavigate();
@@ -25,8 +26,11 @@ export default function Dashboard() {
           <Stat label="Awarded" value={stats.data.awarded} />
           <Stat label="Unmatched emails" value={stats.data.unmatched} tone={stats.data.unmatched ? 'warn' : ''} />
           <Stat label="Rate cards expiring in 7 days" value={stats.data.rate_cards_expiring} tone={stats.data.rate_cards_expiring ? 'warn' : ''} />
+          <Stat label="Jobs waiting for booking" value={(stats.data.jobs?.open || 0) + (stats.data.jobs?.booking_requested || 0)} tone={stats.data.jobs?.open ? 'warn' : ''} />
+          <Stat label="Jobs booked / moving" value={(stats.data.jobs?.booked || 0) + (stats.data.jobs?.moving || 0)} />
         </div>
       )}
+      {stats.data?.cutoffs?.length ? <Card title="Cut-offs in the next 3 days" actions={<Button small variant="ghost" onClick={() => nav('/jobs')}>All jobs</Button>}><CutoffList rows={stats.data.cutoffs} /></Card> : null}
       <Card title="All RFQs" actions={<Select value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="All statuses" options={['new', 'draft', 'sent', 'quoting', 'quoted', 'awarded', 'lost', 'expired', 'closed']} />}>
         {list.loading ? <Loading /> : list.error ? <ErrorBox error={list.error} /> : (
           <Table

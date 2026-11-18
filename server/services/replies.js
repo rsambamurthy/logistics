@@ -7,6 +7,7 @@ import { getSetting, getAiKey } from './settings.js';
 import { createRfqFromEmail } from './intake.js';
 import { rememberQuote } from './rateCards.js';
 import { audit } from './audit.js';
+import { matchBooking, onBookingReply } from './jobs.js';
 
 const addr = (a) => (a?.value || []).map((v) => v.address?.toLowerCase()).filter(Boolean);
 
@@ -36,12 +37,12 @@ export async function matchInvite({ subject, text, inReplyTo, references, from }
   return { invite: null, method: null };
 }
 
-async function storeInbound({ mailboxId, invite, rfqId, kind, status, messageId, inReplyTo, from, to, cc, subject, text, html, attachments, at }) {
+export async function storeInbound({ mailboxId, invite, rfqId, jobId, bookingId, kind, status, messageId, inReplyTo, from, to, cc, subject, text, html, attachments, at }) {
   return tx(async (t) => {
     const email = await t.one(
-      `INSERT INTO emails(direction,kind,mailbox_id,rfq_id,invite_id,message_id,in_reply_to,from_addr,to_addr,cc_addr,subject,body_text,body_html,at,parse_status)
-       VALUES('in',$14,$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,coalesce($12,now()),$13) RETURNING *`,
-      [mailboxId || null, invite?.rfq_id || rfqId || null, invite?.id || null, messageId || null, inReplyTo || null, from, to, cc, subject, text, html, at || null, status || (invite ? 'pending' : 'unmatched'), kind || (invite ? 'agent_reply' : null)]
+      `INSERT INTO emails(direction,kind,mailbox_id,rfq_id,invite_id,message_id,in_reply_to,from_addr,to_addr,cc_addr,subject,body_text,body_html,at,parse_status,job_id,booking_id)
+       VALUES('in',$14,$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,coalesce($12,now()),$13,$15,$16) RETURNING *`,
+      [mailboxId || null, invite?.rfq_id || rfqId || null, invite?.id || null, messageId || null, inReplyTo || null, from, to, cc, subject, text, html, at || null, status || (invite ? 'pending' : 'unmatched'), kind || (invite ? 'agent_reply' : null), jobId || null, bookingId || null]
     );
     for (const a of attachments || []) {
       await t.q('INSERT INTO attachments(email_id,filename,content_type,size,data) VALUES($1,$2,$3,$4,$5)', [email.id, a.filename, a.contentType, a.size || a.content?.length || 0, a.content]);
@@ -68,6 +69,18 @@ export async function ingestInbound(mb, parsed) {
   const from = addr(parsed.from)[0] || '';
   if (from && from === String(mb.from_email).toLowerCase()) return null; // our own sent copy
   const text = parsed.text || htmlToText(parsed.html || '');
+  const mailAttachments = (parsed.attachments || []).filter((a) => !a.related || /pdf|sheet|excel|csv/.test(a.contentType));
+  // replies about a booking go to the job, not to the quotation
+  const booking = await matchBooking({ subject: parsed.subject, text, inReplyTo: parsed.inReplyTo, references: parsed.references });
+  if (booking) {
+    const email = await storeInbound({
+      mailboxId: mb.id, rfqId: booking.rfq_id, jobId: booking.job_id, bookingId: booking.id, kind: 'booking_reply', status: 'pending',
+      messageId, inReplyTo: parsed.inReplyTo, from, to: addr(parsed.to).join(', '), cc: addr(parsed.cc).join(', '),
+      subject: parsed.subject || '', text, html: typeof parsed.html === 'string' ? parsed.html : null, attachments: mailAttachments, at: parsed.date,
+    });
+    onBookingReply(email).catch((e) => console.error('booking reply', e.message));
+    return email;
+  }
   let { invite, rfqId, method } = await matchInvite({ subject: parsed.subject, text, inReplyTo: parsed.inReplyTo, references: parsed.references, from });
   let kind;
   let status;
@@ -100,7 +113,7 @@ export async function ingestInbound(mb, parsed) {
     subject: parsed.subject || '',
     text,
     html: typeof parsed.html === 'string' ? parsed.html : null,
-    attachments: (parsed.attachments || []).filter((a) => !a.related || /pdf|sheet|excel|csv/.test(a.contentType)),
+    attachments: mailAttachments,
     at: parsed.date,
   });
   if (kind === 'enquiry') {

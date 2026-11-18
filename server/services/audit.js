@@ -3,9 +3,9 @@
 import { q, one, runAsTenant } from '../db.js';
 
 /** Record one entry in the current tenant. user = { id, name } or null for automatic actions. */
-export async function audit(user, action, { entity = null, entityId = null, rfqId = null, summary = null, details = null, ip = null } = {}) {
+export async function audit(user, action, { entity = null, entityId = null, rfqId = null, jobId = null, summary = null, details = null, ip = null } = {}) {
   try {
-    await q('INSERT INTO audit_log(user_id,user_name,action,entity,entity_id,rfq_id,summary,details,ip) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)', [user?.id || null, user ? user.name || user.email : 'Quayly (automatic)', action, entity, entityId, rfqId, summary, details, ip]);
+    await q('INSERT INTO audit_log(user_id,user_name,action,entity,entity_id,rfq_id,summary,details,ip,job_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)', [user?.id || null, user ? user.name || user.email : 'Quayly (automatic)', action, entity, entityId, rfqId, summary, details, ip, jobId]);
   } catch (e) {
     console.error('audit failed', e.message);
   }
@@ -15,7 +15,11 @@ const rfqOf = {
   invite: (id) => one('SELECT rfq_id FROM rfq_invites WHERE id=$1', [id]),
   agentQuote: (id) => one('SELECT rfq_id FROM agent_quotes WHERE id=$1', [id]),
   customerQuote: (id) => one('SELECT rfq_id, ref FROM customer_quotes WHERE id=$1', [id]),
-  email: (id) => one('SELECT rfq_id FROM emails WHERE id=$1', [id]),
+  email: (id) => one('SELECT rfq_id, job_id FROM emails WHERE id=$1', [id]),
+  job: (id) => one('SELECT rfq_id, id AS job_id, ref FROM jobs WHERE id=$1', [id]),
+  booking: (id) => one('SELECT j.rfq_id, j.id AS job_id, j.ref FROM bookings b JOIN jobs j ON j.id=b.job_id WHERE b.id=$1', [id]),
+  jobCost: (id) => one('SELECT j.rfq_id, j.id AS job_id, j.ref FROM job_costs c JOIN jobs j ON j.id=c.job_id WHERE c.id=$1', [id]),
+  jobFile: (id) => one('SELECT j.rfq_id, j.id AS job_id, j.ref FROM job_files f JOIN jobs j ON j.id=f.job_id WHERE f.id=$1', [id]),
 };
 
 // "METHOD /path" (as declared in the routers) -> how to describe it.
@@ -46,6 +50,18 @@ const ACTIONS = {
   'POST /customer-quotes/:id/lost': { action: 'Marked quotation lost', entity: 'customer_quote', via: 'customerQuote', summary: (r) => r.body.reason },
   'POST /customer-quotes/:id/accept': { action: 'Quotation accepted, agents awarded', entity: 'customer_quote', via: 'customerQuote' },
   'POST /customer-quotes/:id/approval': { action: 'Approval decision', entity: 'customer_quote', via: 'customerQuote', summary: (r) => (r.body.approve ? 'approved' : 'not approved') + (r.body.note ? `: ${r.body.note}` : '') },
+  'POST /customer-quotes/:id/job': { action: 'Opened job', entity: 'job', via: 'customerQuote', summary: (r, b) => b?.job?.ref },
+  'PUT /jobs/:id': { action: 'Edited job', entity: 'job', via: 'job' },
+  'POST /jobs/:id/milestone': { action: 'Updated job milestone', entity: 'job', via: 'job', summary: (r) => r.body.status },
+  'POST /jobs/:id/send-bookings': { action: 'Sent booking requests', entity: 'job', via: 'job' },
+  'POST /jobs/:id/notify-customer': { action: 'Sent booking confirmation to customer', entity: 'job', via: 'job' },
+  'POST /jobs/:id/costs': { action: 'Added job cost', entity: 'job', via: 'job', summary: (r) => `${r.body.kind} ${r.body.description}: ${r.body.currency} ${r.body.amount}` },
+  'POST /jobs/:id/files': { action: 'Uploaded job documents', entity: 'job', via: 'job' },
+  'POST /bookings/:id/send': { action: 'Sent booking request', entity: 'booking', via: 'booking' },
+  'PUT /bookings/:id': { action: 'Edited booking', entity: 'booking', via: 'booking', summary: (r) => r.body.status && `status ${r.body.status}` },
+  'POST /emails/:id/read-booking': { action: 'Re-read booking reply with AI', entity: 'email', via: 'email' },
+  'DELETE /job-costs/:id': { action: 'Deleted job cost', entity: 'job', via: 'jobCost' },
+  'DELETE /job-files/:id': { action: 'Deleted job document', entity: 'job', via: 'jobFile' },
   'POST /agents': { action: 'Added contact', entity: 'party', summary: (r, b) => b?.company },
   'PUT /agents/:id': { action: 'Edited contact', entity: 'party', summary: (r, b) => b?.company },
   'POST /rate-cards': { action: 'Added rate card', entity: 'rate_card', summary: (r, b) => b?.name },
@@ -84,16 +100,19 @@ export function auditMiddleware(req, res, next) {
     runAsTenant(req.tenant, async () => {
       let rfqId = def.rfq ? def.rfq(req, body) : null;
       let summary = def.summary ? def.summary(req, body) : null;
+      let jobId = body?.job?.id || null;
       if (def.via && req.params.id) {
         const row = await rfqOf[def.via](Number(req.params.id)).catch(() => null);
         rfqId = row?.rfq_id || rfqId;
+        jobId = row?.job_id || jobId;
         if (!summary && row?.ref) summary = row.ref;
       }
       const details = Object.fromEntries(SAFE_FIELDS.filter((f) => req.body?.[f] !== undefined).map((f) => [f, req.body[f]]));
       await audit(req.user, def.action, {
         entity: def.entity,
         entityId: Number(req.params.id) || body?.id || null,
-        rfqId: rfqId || null,
+        rfqId: rfqId || body?.job?.rfq_id || null,
+        jobId,
         summary: summary ? String(summary).slice(0, 300) : null,
         details: Object.keys(details).length ? details : null,
         ip: req.ip,
@@ -103,10 +122,11 @@ export function auditMiddleware(req, res, next) {
   next();
 }
 
-export async function listAudit({ rfq, search, user, days = 30, limit = 300 } = {}) {
+export async function listAudit({ rfq, job, search, user, days = 30, limit = 300 } = {}) {
   const where = ["at >= now() - ($1 || ' days')::interval"];
   const vals = [String(Math.min(Number(days) || 30, 3650))];
   if (rfq) { vals.push(Number(rfq)); where.push(`rfq_id=$${vals.length}`); }
+  if (job) { vals.push(Number(job)); where.push(`job_id=$${vals.length}`); }
   if (user) { vals.push(Number(user)); where.push(`user_id=$${vals.length}`); }
   if (search) { vals.push(`%${search}%`); where.push(`(action ILIKE $${vals.length} OR summary ILIKE $${vals.length} OR user_name ILIKE $${vals.length})`); }
   vals.push(Math.min(Number(limit) || 300, 1000));

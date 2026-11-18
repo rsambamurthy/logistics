@@ -288,4 +288,72 @@ Today: ${new Date().toISOString().slice(0, 10)}`;
   };
 }
 
+const BOOKING_TOOL = {
+  name: 'record_booking_confirmation',
+  description: "Record the booking details in an agent's or carrier's reply to a booking request.",
+  input_schema: {
+    type: 'object',
+    properties: {
+      is_confirmation: { type: 'boolean', description: 'True if the email confirms a booking (booking number, vessel/flight or schedule given).' },
+      rejected: { type: 'boolean', description: 'True if the agent says the booking cannot be made (no space, rate changed, etc.).' },
+      message_summary: { type: 'string' },
+      booking_no: { type: 'string', description: 'Booking / reference number from the carrier or agent' },
+      carrier: { type: 'string', description: 'Shipping line or airline' },
+      vessel: { type: 'string' },
+      voyage: { type: 'string' },
+      flight_no: { type: 'string' },
+      mbl_awb: { type: 'string', description: 'Master BL or AWB number if given' },
+      pol: { type: 'string' },
+      pod: { type: 'string' },
+      etd: { type: 'string', description: 'Estimated departure, ISO date or datetime (YYYY-MM-DD or YYYY-MM-DDTHH:MM)' },
+      eta: { type: 'string' },
+      cutoff_si: { type: 'string', description: 'SI / documentation cut-off, ISO datetime' },
+      cutoff_vgm: { type: 'string', description: 'VGM cut-off, ISO datetime' },
+      cutoff_gate_in: { type: 'string', description: 'CY / gate-in / cargo cut-off, ISO datetime' },
+      cutoff_docs: { type: 'string', description: 'Other document cut-off, ISO datetime' },
+      cutoff_customs: { type: 'string', description: 'Customs cut-off, ISO datetime' },
+      empty_pickup: { type: 'string', description: 'Empty container pick-up depot / yard' },
+      container_numbers: { type: 'array', items: { type: 'string' } },
+      remarks: { type: 'string', description: 'Conditions or instructions (e.g. rate valid only for this sailing)' },
+      confidence: { type: 'number', description: '0-1' },
+    },
+    required: ['is_confirmation', 'rejected', 'confidence', 'message_summary'],
+  },
+};
+
+/** Read a booking confirmation (email text plus PDF/image attachments). */
+export async function parseBookingReply({ job, booking, email, attachmentBlocks }) {
+  const system = `You read booking confirmations from partner agents / carriers for a C&F agent in India or Hong Kong.
+Only use the agent's NEW reply, not the quoted booking request. Dates: convert to ISO (YYYY-MM-DD or YYYY-MM-DDTHH:MM), assume the current or next year when the year is missing. Today: ${new Date().toISOString().slice(0, 10)}. Do not invent values.`;
+  const content = [
+    { type: 'text', text: `Our job ${job.ref}. Booking requested for legs: ${(booking.legs || []).join(', ')}.` },
+    { type: 'text', text: `Agent email\nFrom: ${email.from_addr}\nSubject: ${email.subject}\n\n${(email.body_text || '').slice(0, 30000)}` },
+    ...attachmentBlocks,
+  ];
+  const out = await callTool({ system, content, tool: BOOKING_TOOL, maxTokens: 3000 });
+  // keep the agent's local times as written (no time-zone shift): 'YYYY-MM-DD' or 'YYYY-MM-DDTHH:MM'
+  const dt = (v) => { const m = /^(\d{4}-\d{2}-\d{2})(?:[T ](\d{2}:\d{2}))?/.exec(String(v || '')); return m ? (m[2] ? `${m[1]}T${m[2]}` : m[1]) : null; };
+  const d = (v) => dt(v)?.slice(0, 10) || null;
+  return {
+    is_confirmation: !!out.is_confirmation,
+    rejected: !!out.rejected,
+    summary: out.message_summary || '',
+    booking_no: out.booking_no || null,
+    carrier: out.carrier || null,
+    vessel: out.vessel || null,
+    voyage: out.voyage || null,
+    flight_no: out.flight_no || null,
+    mbl_awb: out.mbl_awb || null,
+    pol: out.pol || null,
+    pod: out.pod || null,
+    etd: d(out.etd),
+    eta: d(out.eta),
+    cutoffs: Object.fromEntries(Object.entries({ si: out.cutoff_si, vgm: out.cutoff_vgm, gate_in: out.cutoff_gate_in, docs: out.cutoff_docs, customs: out.cutoff_customs }).map(([k, v]) => [k, dt(v)]).filter(([, v]) => v)),
+    empty_pickup: out.empty_pickup || null,
+    container_nos: Array.isArray(out.container_numbers) ? out.container_numbers.filter(Boolean) : [],
+    remarks: out.remarks || null,
+    confidence: Math.max(0, Math.min(1, Number(out.confidence ?? 0.5))),
+  };
+}
+
 export { CURRENCIES };

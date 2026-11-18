@@ -128,3 +128,74 @@ CREATE TABLE IF NOT EXISTS audit_log (
 );
 CREATE INDEX IF NOT EXISTS audit_log_at ON audit_log(at DESC);
 CREATE INDEX IF NOT EXISTS audit_log_rfq ON audit_log(rfq_id);
+
+-- 11. Booking stage: jobs, bookings, job costs, job files
+CREATE TABLE IF NOT EXISTS jobs (
+  id SERIAL PRIMARY KEY,
+  ref TEXT UNIQUE NOT NULL,
+  rfq_id INT REFERENCES rfqs(id) ON DELETE SET NULL,
+  customer_quote_id INT REFERENCES customer_quotes(id) ON DELETE SET NULL,
+  option_index INT DEFAULT 0,
+  requester_id INT REFERENCES agents(id),
+  status TEXT NOT NULL DEFAULT 'open',          -- open | booking_requested | booked | departed | arrived | completed | cancelled
+  shipper JSONB DEFAULT '{}',
+  consignee JSONB DEFAULT '{}',
+  notify_party JSONB DEFAULT '{}',
+  cargo_ready_date DATE,
+  customer_ref TEXT,
+  sell_currency TEXT,
+  atd DATE, ata DATE,
+  notes TEXT,
+  created_by INT,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  closed_at TIMESTAMPTZ
+);
+CREATE TABLE IF NOT EXISTS bookings (
+  id SERIAL PRIMARY KEY,
+  job_id INT NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+  invite_id INT REFERENCES rfq_invites(id) ON DELETE SET NULL,
+  agent_id INT REFERENCES agents(id),
+  tag TEXT NOT NULL,
+  legs TEXT[] NOT NULL DEFAULT '{}',
+  status TEXT NOT NULL DEFAULT 'draft',         -- draft | requested | confirmed | rejected | cancelled
+  message_id TEXT,
+  requested_at TIMESTAMPTZ,
+  carrier TEXT, booking_no TEXT, vessel TEXT, voyage TEXT, flight_no TEXT, mbl_awb TEXT,
+  pol TEXT, pod TEXT,
+  etd DATE, eta DATE,
+  cutoffs JSONB DEFAULT '{}',                   -- { si, vgm, gate_in, docs, customs } 'YYYY-MM-DDTHH:MM' local port time
+  empty_pickup TEXT,
+  container_nos TEXT[] DEFAULT '{}',
+  remarks TEXT,
+  confidence NUMERIC,
+  verified BOOLEAN DEFAULT false,
+  source TEXT,
+  confirmed_at TIMESTAMPTZ,
+  last_error TEXT
+);
+CREATE TABLE IF NOT EXISTS job_costs (
+  id SERIAL PRIMARY KEY,
+  job_id INT NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL,                           -- buy | sell
+  leg TEXT,
+  description TEXT NOT NULL,
+  amount NUMERIC NOT NULL,
+  currency TEXT NOT NULL,
+  agent_id INT REFERENCES agents(id),
+  source TEXT NOT NULL DEFAULT 'manual',        -- quote | manual
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS job_files (
+  id SERIAL PRIMARY KEY,
+  job_id INT NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+  kind TEXT,                                    -- invoice | packing_list | si | other
+  filename TEXT, content_type TEXT, size INT,
+  data BYTEA,
+  email_id INT,
+  uploaded_by INT,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+ALTER TABLE emails ADD COLUMN IF NOT EXISTS job_id INT;
+ALTER TABLE emails ADD COLUMN IF NOT EXISTS booking_id INT;
+ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS job_id INT;
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS customer_notified_at TIMESTAMPTZ;

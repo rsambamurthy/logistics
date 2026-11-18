@@ -20,6 +20,7 @@ import { requestPasswordReset, resetPassword, verifyEmail, resendVerification, p
 import { rateLimit } from '../lib/rateLimit.js';
 import { auditMiddleware, listAudit } from '../services/audit.js';
 import { onboardingStatus } from '../services/onboarding.js';
+import { createJobFromQuote, listJobs, loadJob, updateJob, setMilestone, sendBookingRequest, sendAllBookingRequests, updateBooking, readBookingEmail, sendCustomerConfirmation, addCost, deleteCost, addFiles, getFile, deleteFile, upcomingCutoffs, jobCounts } from '../services/jobs.js';
 import billing from './billing.js';
 import platform from './platform.js';
 
@@ -194,7 +195,8 @@ r.get('/dashboard', h(async (req, res) => {
   const errors = await one(`SELECT count(*)::int AS n FROM emails WHERE parse_status='error'`);
   const approvals = await one("SELECT count(*)::int AS n FROM customer_quotes WHERE approval_status='pending'");
   const rc = await expiringCount();
-  res.json({ ...s, approvals_pending: approvals.n, rate_cards_expiring: rc.expiring, rate_cards_expired: rc.expired, needs_review: review.n, unmatched: unmatched.n, parse_errors: errors.n });
+  const [jobs, cutoffs] = await Promise.all([jobCounts(), upcomingCutoffs(72)]);
+  res.json({ ...s, jobs, cutoffs, approvals_pending: approvals.n, rate_cards_expiring: rc.expiring, rate_cards_expired: rc.expired, needs_review: review.n, unmatched: unmatched.n, parse_errors: errors.n });
 }));
 
 r.get('/rfqs', h(async (req, res) => {
@@ -332,12 +334,42 @@ r.get('/onboarding', h(async (req, res) => res.json(await onboardingStatus())));
 r.post('/onboarding/dismiss', h(async (req, res) => { await setSetting('onboarding', { dismissed: req.body.dismissed !== false }); res.json(await onboardingStatus()); }));
 r.get('/audit', h(async (req, res) => {
   // admins see everything; others only the history of a specific RFQ
-  if (req.user.role !== 'admin' && !req.query.rfq) return res.status(403).json({ error: 'Admin only' });
+  if (req.user.role !== 'admin' && !req.query.rfq && !req.query.job) return res.status(403).json({ error: 'Admin only' });
   res.json(await listAudit(req.query));
 }));
 r.post('/customer-quotes/:id/accept', h(async (req, res) => {
-  const results = await acceptQuote(id(req), { option: Number(req.body.option) || 0, sendRegrets: req.body.sendRegrets !== false, note: req.body.note, award: req.body.award !== false });
-  res.json({ ok: true, results });
+  const option = Number(req.body.option) || 0;
+  const results = await acceptQuote(id(req), { option, sendRegrets: req.body.sendRegrets !== false, note: req.body.note, award: req.body.award !== false });
+  const job = await createJobFromQuote(id(req), option, req.user);
+  res.json({ ok: true, results, job });
+}));
+r.post('/customer-quotes/:id/job', h(async (req, res) => res.json({ job: await createJobFromQuote(id(req), req.body.option, req.user) })));
+
+// ---------- jobs & bookings ----------
+r.get('/jobs', h(async (req, res) => res.json(await listJobs(req.query))));
+r.get('/jobs/cutoffs', h(async (req, res) => res.json(await upcomingCutoffs(Number(req.query.hours) || 72))));
+r.get('/jobs/:id', h(async (req, res) => res.json(await loadJob(id(req)))));
+r.put('/jobs/:id', h(async (req, res) => res.json(await updateJob(id(req), req.body))));
+r.post('/jobs/:id/milestone', h(async (req, res) => res.json(await setMilestone(id(req), req.body))));
+r.post('/jobs/:id/send-bookings', h(async (req, res) => res.json(await sendAllBookingRequests(id(req), req.body, req.user))));
+r.post('/jobs/:id/notify-customer', h(async (req, res) => res.json(await sendCustomerConfirmation(id(req), req.body, req.user))));
+r.post('/jobs/:id/costs', h(async (req, res) => res.json(await addCost(id(req), req.body))));
+r.delete('/job-costs/:id', h(async (req, res) => res.json(await deleteCost(id(req)))));
+r.post('/jobs/:id/files', upload.array('files'), h(async (req, res) => res.json(await addFiles(id(req), req.files, req.body.kind, req.user))));
+r.get('/job-files/:id', h(async (req, res) => {
+  const f = await getFile(id(req));
+  if (!f) return res.status(404).end();
+  res.setHeader('Content-Type', f.content_type || 'application/octet-stream');
+  res.setHeader('Content-Disposition', `inline; filename="${(f.filename || 'file').replace(/"/g, '')}"`);
+  res.send(f.data);
+}));
+r.delete('/job-files/:id', h(async (req, res) => res.json(await deleteFile(id(req)))));
+r.post('/bookings/:id/send', h(async (req, res) => res.json(await sendBookingRequest(id(req), req.body, req.user))));
+r.put('/bookings/:id', h(async (req, res) => res.json(await updateBooking(id(req), req.body))));
+r.post('/emails/:id/read-booking', h(async (req, res) => {
+  const e = await one('SELECT job_id FROM emails WHERE id=$1', [id(req)]);
+  await readBookingEmail(id(req));
+  res.json(await loadJob(e.job_id));
 }));
 
 export default r;

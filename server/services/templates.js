@@ -5,6 +5,7 @@ const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<
 
 export const tagOf = (rfq, invite) => `[${rfq.ref}/${invite.tag}]`;
 export const TAG_REGEX = /\[(RFQ-\d{4}-\d{3,})\/([A-Z0-9]{4})\]/;
+export const JOB_TAG_REGEX = /\[(JOB-\d{4}-\d{3,})\/([A-Z0-9]{4})\]/;
 
 export function routeText(rfq, sep = ' → ') {
   return [rfq.pickup_place, rfq.pol, rfq.pod, rfq.delivery_place].filter(Boolean).join(sep);
@@ -161,4 +162,63 @@ export function quoteFollowupEmail({ rfq, customer, quote, mb }) {
       ],
     }),
   };
+}
+
+// ---------------- booking ----------------
+const partyText = (p) => [p?.name, p?.address, [p?.contact, p?.phone, p?.email].filter(Boolean).join(' / '), p?.tax_id && `Tax ID: ${p.tax_id}`].filter(Boolean).join('\n');
+// dates and cut-offs are local port times kept as text ('YYYY-MM-DD' / 'YYYY-MM-DDTHH:MM'): format without time-zone shifts
+const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+export const fmtD = (v) => { const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(v instanceof Date ? v.toISOString() : String(v || '')); return m ? `${m[3]} ${MON[Number(m[2]) - 1]} ${m[1]}` : null; };
+export const fmtDT = (v) => { const t = /T(\d{2}:\d{2})/.exec(String(v || '')); return fmtD(v) && `${fmtD(v)}${t ? ` ${t[1]}` : ''}`; };
+
+export function bookingRequestEmail({ job, booking, rfq, agent, mb, note }) {
+  const tag = `[${job.ref}/${booking.tag}]`;
+  const rows = [
+    ['Our job reference', job.ref],
+    ['Your quote', rfq.ref],
+    ['Legs to book', (booking.legs || []).map(legName).join(', ')],
+    ['Route', routeText(rfq)],
+    ['Mode', rfq.mode === 'AIR' ? 'Air' : `Sea ${rfq.mode}`],
+    ['Equipment / cargo', equipmentText(rfq)],
+    ['Commodity', rfq.commodity],
+    ['HS code', rfq.hs_code],
+    ['Dangerous goods', rfq.dangerous_goods ? ['Yes', rfq.dg_class && `class ${rfq.dg_class}`, rfq.un_number && `UN ${rfq.un_number}`].filter(Boolean).join(', ') : null],
+    ['Reefer temperature', rfq.reefer_temp],
+    ['Cargo ready', fmtD(job.cargo_ready_date)],
+    ['Shipper', partyText(job.shipper)],
+    ['Consignee', partyText(job.consignee)],
+    ['Notify party', partyText(job.notify_party)],
+  ].filter(([, v]) => v);
+  const greet = `Dear ${agent.contact || agent.company},`;
+  const intro = `Please book the shipment below as per your quotation and confirm with booking number, vessel/voyage (or flight), ETD/ETA and cut-offs (SI, VGM, gate-in).`;
+  const text = [greet, '', intro, '', ...rows.map(([k, v]) => `${k}: ${String(v).replace(/\n/g, ', ')}`), '', note || '', '', 'Please keep the reference in the subject when replying.', '', 'Regards,', signatureBlock(mb)].join('\n');
+  const html = `<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#1d2433"><p>${esc(greet)}</p><p>${esc(intro)}</p>
+<table cellpadding="6" style="border-collapse:collapse;border:1px solid #d6dce5">${rows.map(([k, v]) => `<tr><td style="background:#f2f5f9;border:1px solid #d6dce5;font-weight:bold;vertical-align:top">${esc(k)}</td><td style="border:1px solid #d6dce5">${esc(v).replace(/\n/g, '<br>')}</td></tr>`).join('')}</table>
+${note ? `<p>${esc(note).replace(/\n/g, '<br>')}</p>` : ''}<p style="color:#5a6b80">Please keep the reference in the subject when replying.</p>
+<p>Regards,<br>${esc(signatureBlock(mb)).replace(/\n/g, '<br>')}</p></div>`;
+  return { subject: `Booking request ${rfq.pol || ''} to ${rfq.pod || ''} ${tag}`.replace(/\s+/g, ' '), text, html };
+}
+
+export function customerBookingEmail({ job, bookings, rfq, customer, mb, note }) {
+  const blocks = bookings.map((b) => [
+    ['Covers', (b.legs || []).map(legName).join(', ')],
+    ['Booking no.', b.booking_no],
+    ['Carrier', b.carrier],
+    ['Vessel / voyage', [b.vessel, b.voyage].filter(Boolean).join(' / ') || null],
+    ['Flight', b.flight_no],
+    ['From → to', [b.pol || rfq.pol, b.pod || rfq.pod].filter(Boolean).join(' → ')],
+    ['ETD', fmtD(b.etd)],
+    ['ETA', fmtD(b.eta)],
+    ['SI cut-off', fmtDT(b.cutoffs?.si)],
+    ['VGM cut-off', fmtDT(b.cutoffs?.vgm)],
+    ['Gate-in cut-off', fmtDT(b.cutoffs?.gate_in)],
+    ['Empty pick-up', b.empty_pickup],
+  ].filter(([, v]) => v));
+  const greet = `Dear ${customer?.contact || customer?.name || 'Sir/Madam'},`;
+  const intro = `Your shipment ${job.ref}${job.customer_ref ? ` (your ref ${job.customer_ref})` : ''} for ${routeText(rfq)} is booked. Details below.`;
+  const text = [greet, '', intro, '', ...blocks.flatMap((rows) => [...rows.map(([k, v]) => `${k}: ${v}`), '']), note || '', 'Please share the shipping instructions and documents before the cut-offs.', '', 'Regards,', signatureBlock(mb)].join('\n');
+  const html = `<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#1d2433"><p>${esc(greet)}</p><p>${esc(intro)}</p>
+${blocks.map((rows) => `<table cellpadding="6" style="border-collapse:collapse;border:1px solid #d6dce5;margin-bottom:10px">${rows.map(([k, v]) => `<tr><td style="background:#f2f5f9;border:1px solid #d6dce5;font-weight:bold">${esc(k)}</td><td style="border:1px solid #d6dce5">${esc(v)}</td></tr>`).join('')}</table>`).join('')}
+${note ? `<p>${esc(note)}</p>` : ''}<p>Please share the shipping instructions and documents before the cut-offs.</p><p>Regards,<br>${esc(signatureBlock(mb)).replace(/\n/g, '<br>')}</p></div>`;
+  return { subject: `Booking confirmed ${job.ref} — ${routeText(rfq)}`, text, html };
 }

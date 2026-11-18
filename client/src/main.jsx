@@ -15,11 +15,14 @@ import RfqDetail from './pages/RfqDetail.jsx';
 import Inbox from './pages/Inbox.jsx';
 import Reports from './pages/Reports.jsx';
 import Settings from './pages/Settings.jsx';
+import Jobs from './pages/Jobs.jsx';
+import JobDetail from './pages/JobDetail.jsx';
 
 function Shell({ user, tenant, access, onLogout }) {
   const nav = [
     ['/', 'RFQs'],
     ['/rfqs/new', '+ New RFQ'],
+    ['/jobs', 'Jobs'],
     ['/inbox', 'Unmatched mail'],
     ['/reports', 'Reports'],
     ['/settings', 'Settings'],
@@ -41,6 +44,8 @@ function Shell({ user, tenant, access, onLogout }) {
           <Route path="/" element={<Dashboard />} />
           <Route path="/rfqs/new" element={<RfqNew />} />
           <Route path="/rfqs/:id" element={<RfqDetail />} />
+          <Route path="/jobs" element={<Jobs />} />
+          <Route path="/jobs/:id" element={<JobDetail />} />
           <Route path="/inbox" element={<Inbox />} />
           <Route path="/reports" element={<Reports />} />
           <Route path="/agents" element={<Navigate to="/settings/partner-agents" replace />} />

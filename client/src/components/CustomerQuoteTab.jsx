@@ -1,5 +1,6 @@
 // Sell-side quotation for an RFQ: options (incl. linked sea/air alternatives), revisions, approvals, sending, outcome.
 import { useEffect, useMemo, useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../api.js';
 import { useMeta } from './meta.jsx';
 import { useSession } from './session.js';
@@ -66,6 +67,8 @@ export default function CustomerQuoteTab({ data, selection, reload, goCompare })
   const [editing, setEditing] = useState(null); // { index, value }
   const [preview, setPreview] = useState(null);
   const [busy, run] = useAction();
+  const navTo = useNavigate();
+  const jobOf = (r) => (data.jobs || []).find((j) => j.customer_quote_id === r.id);
   const [sendTo, setSendTo] = useState(null);
   const [lost, setLost] = useState(null);
   const [accepting, setAccepting] = useState(null);
@@ -202,6 +205,7 @@ export default function CustomerQuoteTab({ data, selection, reload, goCompare })
                   {r.status === 'sent' && <Button small variant="ghost" busy={busy === `f${r.id}`} onClick={() => run(`f${r.id}`, async () => { await api.post(`/customer-quotes/${r.id}/follow-up`); await reload(); }, 'Follow-up email sent')}>Follow up</Button>}
                   {['sent', 'expired', 'draft'].includes(r.status) && <Button small variant="ghost" onClick={() => setLost({ quote: r, reason: '', note: '' })}>Lost</Button>}
                   {['sent', 'draft', 'expired'].includes(r.status) && !['pending', 'rejected'].includes(r.approval_status) && <Button small onClick={() => setAccepting({ quote: r, option: 0 })}>Accepted → award</Button>}
+                  {r.status === 'accepted' && (jobOf(r) ? <Link className="btn btn-primary btn-sm" to={`/jobs/${jobOf(r).id}`}>Job {jobOf(r).ref}</Link> : <Button small busy={busy === `j${r.id}`} onClick={() => run(`j${r.id}`, async () => { const x = await api.post(`/customer-quotes/${r.id}/job`, { option: r.accepted_option || 0 }); navTo(`/jobs/${x.job.id}`); })}>Open job</Button>)}
                 </div>
               ),
             },
@@ -226,14 +230,15 @@ export default function CustomerQuoteTab({ data, selection, reload, goCompare })
           setAccepting(null);
           await reload();
           const f = res.results.filter((x) => !x.ok);
-          if (f.length) throw new Error(`${f.length} email(s) failed: ${f[0].error}`);
-        }, 'Accepted. Winning agents notified; others thanked.')}>Confirm & notify agents</Button>}>
+          if (f.length) throw new Error(`${f.length} email(s) failed: ${f[0].error}. Job ${res.job.ref} was opened.`);
+          if (res.job) navTo(`/jobs/${res.job.id}`);
+        }, 'Accepted. Winning agents notified; job opened.')}>Confirm, notify agents & open job</Button>}>
           {accepting.quote.snapshot?.options?.length > 1 && (
             <Field label="Which option did they choose?">
               <Select value={accepting.option} options={accepting.quote.snapshot.options.map((o, i) => ({ value: i, label: `${o.label} — ${money(o.totals.grand_total, accepting.quote.currency)}` }))} onChange={(e) => setAccepting({ ...accepting, option: Number(e.target.value) })} />
             </Field>
           )}
-          <p>The winning agents get a confirmation email; agents who quoted but did not win get a polite decline.</p>
+          <p>The winning agents get a confirmation email; agents who quoted but did not win get a polite decline. A job opens for the booking stage.</p>
         </Modal>
       )}
       {lost && (

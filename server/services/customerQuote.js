@@ -7,7 +7,7 @@ import { q, one, currentTenant } from '../db.js';
 import { buildQuoteOptions, diffSnapshots } from '../engines/costing.js';
 import { BASES } from '../engines/charges.js';
 import { getFx, getSetting } from './settings.js';
-import { getMailbox, sendMail } from './mail.js';
+import { mailRequester } from './requesterMail.js';
 import { customerQuoteEmail, quoteFollowupEmail, routeText } from './templates.js';
 import { t as tr, legLabel, basisLabel } from './i18n.js';
 import { awardRfq } from './rfq.js';
@@ -264,22 +264,9 @@ export async function renderPdf(quoteId) {
   return done;
 }
 
-/** Send something to the RFQ's requester, inside their own enquiry thread when there is one. */
-async function sendToRequester(quote, build, { to, cc, subject, text, attachments, kind }) {
-  const rfq = await one('SELECT * FROM rfqs WHERE id=$1', [quote.rfq_id]);
-  const requester = rfq.requester_id ? await one('SELECT * FROM agents WHERE id=$1', [rfq.requester_id]) : null;
-  const source = rfq.source_email_id ? await one('SELECT message_id, subject FROM emails WHERE id=$1', [rfq.source_email_id]) : null;
-  const mb = await getMailbox(rfq.mailbox_id);
-  if (!mb) throw new Error('No mailbox configured');
-  const tpl = build({ rfq, customer: requester && { name: requester.company, contact: requester.contact }, quote, mb });
-  const recipient = to || requester?.email;
-  if (!recipient) throw new Error('Requester email missing');
-  const threadSubject = source?.subject ? `${/^re:/i.test(source.subject) ? '' : 'Re: '}${source.subject} — ${quote.ref}` : null;
-  await sendMail(
-    mb,
-    { to: recipient, cc, subject: subject || threadSubject || tpl.subject, text: text || tpl.text, html: text ? undefined : tpl.html, inReplyTo: source?.message_id || undefined, references: source?.message_id ? [source.message_id] : undefined, attachments },
-    { kind, rfq_id: rfq.id }
-  );
+/** Send something about a quotation to the RFQ's requester (in their thread). */
+async function sendToRequester(quote, build, opts) {
+  const { rfq } = await mailRequester(quote.rfq_id, (ctx) => build({ ...ctx, quote }), { ...opts, refSuffix: quote.ref });
   return rfq;
 }
 

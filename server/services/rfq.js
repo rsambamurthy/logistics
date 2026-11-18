@@ -103,14 +103,15 @@ export async function loadRfq(id) {
   const emails = await q(
     `SELECT e.id,e.direction,e.kind,e.invite_id,e.from_addr,e.to_addr,e.subject,e.body_text,e.at,e.parse_status,e.parse_error,
       (SELECT coalesce(json_agg(json_build_object('id',a.id,'filename',a.filename,'size',a.size,'content_type',a.content_type)),'[]') FROM attachments a WHERE a.email_id=e.id) AS attachments
-     FROM emails e WHERE e.rfq_id=$1 ORDER BY e.at`,
+     FROM emails e WHERE e.rfq_id=$1 AND e.job_id IS NULL ORDER BY e.at`,
     [id]
   );
   const customerQuotes = await q('SELECT * FROM customer_quotes WHERE rfq_id=$1 ORDER BY id DESC', [id]);
   const sourceEmail = rfq.source_email_id ? emails.find((e) => e.id === rfq.source_email_id) || null : null;
   const root = rfq.parent_rfq_id || rfq.id;
   const linked = await q('SELECT id, ref, mode, status FROM rfqs WHERE (id=$1 OR parent_rfq_id=$1) AND id<>$2 ORDER BY id', [root, rfq.id]);
-  return { rfq, invites, quotes, emails, customerQuotes, sourceEmail, linked };
+  const jobs = await q('SELECT id, ref, status, customer_quote_id FROM jobs WHERE rfq_id=$1 OR customer_quote_id = ANY($2) ORDER BY id', [id, customerQuotes.map((c) => c.id)]);
+  return { rfq, invites, quotes, emails, customerQuotes, sourceEmail, linked, jobs };
 }
 
 export async function compareRfq(id, currency) {

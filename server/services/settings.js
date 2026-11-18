@@ -1,4 +1,4 @@
-import { q, one } from '../db.js';
+import { q, one, currentTenant } from '../db.js';
 import { encrypt, decrypt } from '../lib/crypto.js';
 
 export const DEFAULTS = {
@@ -47,7 +47,7 @@ export async function setSetting(key, value) {
 export async function getAllPublic() {
   const out = {};
   for (const k of Object.keys(DEFAULTS)) out[k] = await getSetting(k);
-  out.ai = { ...out.ai, has_key: !!(out.ai.key_enc || process.env.ANTHROPIC_API_KEY), key_enc: undefined };
+  out.ai = { ...out.ai, has_key: !!out.ai.key_enc, platform_key: !!process.env.ANTHROPIC_API_KEY && currentTenant()?.ai_enabled !== false, key_enc: undefined };
   return out;
 }
 
@@ -58,9 +58,14 @@ export async function saveAi({ api_key, ...rest }) {
   return setSetting('ai', patch);
 }
 
+/** Tenant's own key first; otherwise the platform key if the tenant's plan includes AI. */
 export async function getAiKey() {
   const ai = await getSetting('ai');
-  return decrypt(ai.key_enc) || process.env.ANTHROPIC_API_KEY || null;
+  const own = decrypt(ai.key_enc);
+  if (own) return own;
+  const t = currentTenant();
+  if (t && t.ai_enabled === false) return null;
+  return process.env.ANTHROPIC_API_KEY || null;
 }
 
 export async function getFx() {

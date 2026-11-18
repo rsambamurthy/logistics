@@ -1,7 +1,7 @@
 import express from 'express';
 import multer from 'multer';
-import { q, one } from '../db.js';
-import { requireAuth, requireAdmin, needsSetup, createUser, login, logout, issue, listUsers } from '../auth.js';
+import { q, one, runAsTenant } from '../db.js';
+import { requireAuth, requireAdmin, requireActiveSubscription, createUser, login, logout, issue, listUsers, decode } from '../auth.js';
 import { LEGS, BASES, CHARGE_CODES, MODES, INCOTERMS, CURRENCIES, CONTAINER_TYPES, LEG_CODES } from '../engines/charges.js';
 import { getAllPublic, setSetting, saveAi } from '../services/settings.js';
 import { encrypt } from '../lib/crypto.js';
@@ -12,27 +12,43 @@ import { createRfqFromEmail } from '../services/intake.js';
 import { listCards, getCard, saveCard, copyCard, deleteCard, applyRateCards, templateWorkbook, importRateCards, expiringCount } from '../services/rateCards.js';
 import { parseEnquiry } from '../services/ai.js';
 import { previewCustomerQuote, saveCustomerQuote, renderPdf, emailCustomerQuote } from '../services/customerQuote.js';
+import { signUp, getTenant, accessState, usage, assertCanCreateRfq } from '../services/tenants.js';
+import billing from './billing.js';
+import platform from './platform.js';
 
 const r = express.Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 15 * 1024 * 1024, files: 10 } });
-const h = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
+// Async handler. Re-enters the tenant context because stream-based middleware (uploads) can lose it.
+const h = (fn) => (req, res, next) => {
+  const run = () => Promise.resolve(fn(req, res, next)).catch(next);
+  return req.tenant ? runAsTenant(req.tenant, run) : run();
+};
 const id = (req) => Number(req.params.id);
 
-// ---------- session ----------
+// ---------- session & sign-up ----------
 r.get('/session', h(async (req, res) => {
-  if (await needsSetup()) return res.json({ setup: true });
-  requireAuth(req, res, () => res.json({ user: req.user }));
+  if (!decode(req)) return res.json({});
+  requireAuth(req, res, () => res.json({ user: req.user, tenant: tenantView(req.tenant), access: req.access }));
 }));
-r.post('/setup', h(async (req, res) => {
-  if (!(await needsSetup())) return res.status(400).json({ error: 'Already set up' });
-  const u = await createUser({ ...req.body, role: 'admin' });
-  issue(res, u);
-  res.json({ user: u });
+r.post('/signup', h(async (req, res) => {
+  const { tenant, user } = await signUp(req.body);
+  issue(res, user, tenant.id);
+  res.json({ user, tenant: tenantView(tenant), access: accessState(tenant) });
 }));
 r.post('/login', h(async (req, res) => res.json({ user: await login(res, req.body.email, req.body.password) })));
 r.post('/logout', (req, res) => { logout(res); res.json({ ok: true }); });
+r.use('/billing/razorpay/webhook', billing.webhook);
+
+function tenantView(t) {
+  if (!t) return null;
+  const { schema, razorpay_customer_id, ...rest } = t;
+  return rest;
+}
 
 r.use(requireAuth);
+r.use(requireActiveSubscription);
+r.use('/billing', billing.router);
+r.use('/platform', platform);
 
 r.get('/meta', (req, res) => res.json({ legs: LEGS, bases: BASES, charges: CHARGE_CODES.map(({ synonyms, ...c }) => c), modes: MODES, incoterms: INCOTERMS, currencies: CURRENCIES, containerTypes: CONTAINER_TYPES }));
 
@@ -155,6 +171,7 @@ r.get('/rfqs', h(async (req, res) => {
 }));
 r.post('/enquiry/parse', h(async (req, res) => res.json(await parseEnquiry(req.body.text || ''))));
 r.post('/rfqs', h(async (req, res) => {
+  await assertCanCreateRfq(req.tenant);
   const rfq = await createRfq(req.body, req.user.id);
   // price instantly from stored rate cards (never emails anyone)
   try { rfq.rate_cards = await applyRateCards(rfq.id); } catch (e) { console.error('rate cards', e.message); }

@@ -7,11 +7,12 @@ import { migrate } from './db.js';
 import api from './routes/api.js';
 import { pollAll } from './services/mail.js';
 import { autoRemind } from './services/rfq.js';
+import { forEachTenant } from './services/tenants.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 app.set('trust proxy', 1);
-app.use(express.json({ limit: '5mb' }));
+app.use(express.json({ limit: '5mb', verify: (req, res, buf) => { req.rawBody = buf; } }));
 app.use(cookieParser());
 
 app.get('/healthz', (req, res) => res.json({ ok: true }));
@@ -37,8 +38,14 @@ const port = Number(process.env.PORT || 3000);
 (async () => {
   await migrate();
   app.listen(port, () => console.log(`AgentQuote listening on ${port}`));
-  setInterval(() => pollAll().catch((e) => console.error('poll', e.message)), POLL_SECONDS * 1000);
-  setInterval(() => autoRemind().catch((e) => console.error('remind', e.message)), 15 * 60 * 1000);
+  // background work runs once per tenant, inside that tenant's context
+  let busy = false;
+  setInterval(async () => {
+    if (busy) return;
+    busy = true;
+    try { await forEachTenant(() => pollAll()); } catch (e) { console.error('poll', e.message); } finally { busy = false; }
+  }, POLL_SECONDS * 1000);
+  setInterval(() => forEachTenant(() => autoRemind()).catch((e) => console.error('remind', e.message)), 15 * 60 * 1000);
 })().catch((e) => {
   console.error('Startup failed', e);
   process.exit(1);

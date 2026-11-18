@@ -1,18 +1,20 @@
 import { useState } from 'react';
 import { api } from '../api.js';
-import { Button, Field, Input } from '../components/ui.jsx';
+import { Button, Field, Input, Select } from '../components/ui.jsx';
 
-export default function Login({ setup, onDone }) {
-  const [f, setF] = useState({ name: '', email: '', password: '' });
+export default function Login({ onDone }) {
+  const [mode, setMode] = useState(new URLSearchParams(location.search).has('signup') ? 'signup' : 'signin');
+  const [f, setF] = useState({ company: '', name: '', email: '', password: '', country: 'IN' });
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
+  const signup = mode === 'signup';
   const submit = async (e) => {
     e.preventDefault();
     setBusy(true);
     setErr('');
     try {
-      const r = await api.post(setup ? '/setup' : '/login', f);
-      onDone(r.user);
+      await api.post(signup ? '/signup' : '/login', f);
+      onDone();
     } catch (x) {
       setErr(x.message);
     } finally {
@@ -24,12 +26,20 @@ export default function Login({ setup, onDone }) {
     <div className="login-bg">
       <form className="login card" onSubmit={submit}>
         <div className="brand big"><span className="logo">AQ</span> AgentQuote</div>
-        <p className="muted">{setup ? 'First-time setup: create the admin account.' : 'Sign in to continue.'}</p>
-        {setup && <Field label="Your name"><Input value={f.name} onChange={set('name')} required /></Field>}
-        <Field label="Email"><Input type="email" value={f.email} onChange={set('email')} required /></Field>
-        <Field label="Password" hint={setup ? 'At least 8 characters' : null}><Input type="password" value={f.password} onChange={set('password')} required /></Field>
+        <p className="muted">{signup ? 'Create your company account. Free 14-day trial, no card needed.' : 'Sign in to continue.'}</p>
+        {signup && <>
+          <Field label="Company name"><Input value={f.company} onChange={set('company')} required /></Field>
+          <Field label="Country"><Select options={[{ value: 'IN', label: 'India' }, { value: 'HK', label: 'Hong Kong' }]} value={f.country} onChange={set('country')} /></Field>
+          <Field label="Your name"><Input value={f.name} onChange={set('name')} required /></Field>
+        </>}
+        <Field label="Work email"><Input type="email" value={f.email} onChange={set('email')} required /></Field>
+        <Field label="Password" hint={signup ? 'At least 8 characters' : null}><Input type="password" value={f.password} onChange={set('password')} required /></Field>
         {err && <div className="alert alert-red">{err}</div>}
-        <Button busy={busy} type="submit">{setup ? 'Create admin & sign in' : 'Sign in'}</Button>
+        <Button busy={busy} type="submit">{signup ? 'Start free trial' : 'Sign in'}</Button>
+        <div className="small muted center">
+          {signup ? <>Already have an account? <button type="button" className="link" onClick={() => setMode('signin')}>Sign in</button></>
+            : <>New company? <button type="button" className="link" onClick={() => setMode('signup')}>Start a free trial</button></>}
+        </div>
       </form>
     </div>
   );

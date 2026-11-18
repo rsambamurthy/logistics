@@ -1,5 +1,6 @@
 // Enquiry intake: turn a request-for-quote email (from a customer or a partner agent) into a draft RFQ.
-import { q, one } from '../db.js';
+import { q, one, currentTenant } from '../db.js';
+import { assertCanCreateRfq } from './tenants.js';
 import { parseEnquiry } from './ai.js';
 import { createRfq } from './rfq.js';
 import { applyRateCards } from './rateCards.js';
@@ -29,6 +30,7 @@ export async function createRfqFromEmail(emailId, { mailboxId } = {}) {
   const email = await one('SELECT * FROM emails WHERE id=$1', [emailId]);
   if (!email) throw new Error('Email not found');
   if (email.rfq_id) return one('SELECT * FROM rfqs WHERE id=$1', [email.rfq_id]);
+  await assertCanCreateRfq(currentTenant());
   const parsed = await parseEnquiry(`From: ${email.from_addr}\nSubject: ${email.subject}\n\n${email.body_text || ''}`);
   const party = await findOrCreateParty(email.from_addr, parsed.customer_name);
   const role = party?.is_agent ? 'agent' : 'customer';

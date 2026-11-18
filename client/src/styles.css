@@ -136,3 +136,13 @@ textarea.input { resize: vertical; }
 @media (max-width: 900px) { .with-subnav { grid-template-columns: 1fr; } .subnav { position: static; } }
 .filters .input { width: auto; min-width: 200px; }
 .subnav-group { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); padding: 12px 12px 4px; }
+.banner { border-radius: 8px; padding: 10px 14px; font-weight: 600; }
+.banner a { margin-left: 8px; }
+.banner-red { background: var(--red-l); color: var(--red); }
+.banner-amber { background: var(--amber-l); color: var(--amber); }
+.center { text-align: center; }
+.plans { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; }
+.plan { border: 1px solid var(--line); border-radius: 10px; padding: 16px; display: flex; flex-direction: column; gap: 8px; background: #fff; }
+.plan.current { border-color: var(--blue); box-shadow: 0 0 0 2px var(--blue-l); }
+.plan .price { font-size: 24px; font-weight: 700; color: var(--navy); }
+.plan .price small { font-size: 12px; color: var(--muted); font-weight: 400; }

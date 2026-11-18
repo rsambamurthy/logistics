@@ -3,6 +3,8 @@ import { useParams } from 'react-router-dom';
 import RateCards from './RateCards.jsx';
 import Agents from './Agents.jsx';
 import Customers from './Customers.jsx';
+import Subscription from './Subscription.jsx';
+import { Tenants, Plans } from './Platform.jsx';
 import { api } from '../api.js';
 import { useMeta } from '../components/meta.jsx';
 import { PageHeader, Card, Table, Button, Modal, FormGrid, Field, Input, Select, Check, Badge, SideMenu, Loading, useLoad, useAction, fmtDateTime } from '../components/ui.jsx';
@@ -20,6 +22,10 @@ const SECTIONS = [
   { key: 'company', label: 'Company', hint: 'Details printed on quotations' },
   { key: 'ai', label: 'AI', hint: 'Reading replies and enquiries' },
   { key: 'users', label: 'Users', hint: 'Who can sign in' },
+  { key: 'subscription', label: 'Subscription', hint: 'Plan, usage and billing' },
+  { group: 'Integrata admin', platform: true },
+  { key: 'tenants', label: 'Tenants', hint: 'All companies on the platform', platform: true },
+  { key: 'plans', label: 'Plans', hint: 'Prices and limits', platform: true },
 ];
 
 export default function Settings({ user }) {
@@ -29,12 +35,15 @@ export default function Settings({ user }) {
   const current = SECTIONS.find((x) => x.key === section) || SECTIONS[1];
   return (
     <div className="with-subnav">
-      <SideMenu title="Settings" items={SECTIONS.map((x) => (x.group ? x : { to: `/settings/${x.key}`, label: x.label, hint: x.hint }))} />
+      <SideMenu title="Settings" items={SECTIONS.filter((x) => !x.platform || user.platform_admin).map((x) => (x.group ? x : { to: `/settings/${x.key}`, label: x.label, hint: x.hint }))} />
       <div className="subnav-body">
-        {!admin && <div className="alert alert-amber">Only admins can change settings.</div>}
+        {!admin && current.key !== 'subscription' && <div className="alert alert-amber">Only admins can change settings.</div>}
         {current.key === 'mailboxes' && <><PageHeader title="RFQ mailboxes" /><Mailboxes /></>}
         {current.key === 'rate-cards' && <RateCards />}
         {current.key === 'partner-agents' && <Agents />}
+        {current.key === 'subscription' && <Subscription admin={admin} />}
+        {current.key === 'tenants' && user.platform_admin && <Tenants />}
+        {current.key === 'plans' && user.platform_admin && <Plans />}
         {current.key === 'customers' && <Customers />}
         {current.key === 'users' && <><PageHeader title="Users" /><Users admin={admin} /></>}
         {['ai', 'company', 'pricing'].includes(current.key) && (!s.data ? <Loading /> : (
@@ -158,9 +167,9 @@ function AiSettings({ data, onSaved }) {
   const [busy, run] = useAction();
   return (
     <Card title="AI reply reader" actions={<Button busy={busy} onClick={() => run('x', async () => onSaved(await api.put('/settings/ai', f)), 'AI settings saved')}>Save</Button>}>
-      <p className="muted small">The AI reads partner-agent replies (email text, PDF, Excel and scanned rate sheets) and fills in the quote. Status: {data.ai.has_key ? <Badge color="green">API key set</Badge> : <Badge color="amber">no API key</Badge>}</p>
+      <p className="muted small">The AI reads partner-agent replies (email text, PDF, Excel and scanned rate sheets) and fills in the quote. Status: {data.ai.has_key ? <Badge color="green">your own API key</Badge> : data.ai.platform_key ? <Badge color="green">included in your plan</Badge> : <Badge color="amber">no API key</Badge>}</p>
       <div className="grid g3">
-        <Field label="Anthropic API key" hint="Stored encrypted. Leave blank to keep the current key."><Input type="password" value={f.api_key} onChange={(e) => setF({ ...f, api_key: e.target.value })} placeholder="sk-ant-…" /></Field>
+        <Field label="Your own Anthropic API key (optional)" hint="Stored encrypted. Only needed if AI is not included in your plan. Leave blank to keep the current key."><Input type="password" value={f.api_key} onChange={(e) => setF({ ...f, api_key: e.target.value })} placeholder="sk-ant-…" /></Field>
         <Field label="Model"><Input value={f.model} onChange={(e) => setF({ ...f, model: e.target.value })} /></Field>
         <Field label="Review if confidence below" hint="0–1. Lower-confidence quotes are flagged for a person to check."><Input type="number" step="0.05" value={f.review_threshold} onChange={(e) => setF({ ...f, review_threshold: Number(e.target.value) })} /></Field>
       </div>

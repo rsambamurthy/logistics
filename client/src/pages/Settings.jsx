@@ -22,6 +22,7 @@ const SECTIONS = [
   { key: 'mailboxes', label: 'RFQ mailboxes', hint: 'Addresses used to email agents and read replies' },
   { key: 'company', label: 'Company', hint: 'Details printed on quotations' },
   { key: 'ai', label: 'AI', hint: 'Reading replies and enquiries' },
+  { key: 'tracking', label: 'Tracking', hint: 'Live tracking and customer updates' },
   { key: 'users', label: 'Users', hint: 'Who can sign in' },
   { key: 'subscription', label: 'Subscription', hint: 'Plan, usage and billing' },
   { key: 'activity', label: 'Activity log', hint: 'Who did what, and when' },
@@ -49,10 +50,11 @@ export default function Settings({ user }) {
         {current.key === 'plans' && user.platform_admin && <Plans />}
         {current.key === 'customers' && <Customers />}
         {current.key === 'users' && <><PageHeader title="Users" /><Users admin={admin} /></>}
-        {['ai', 'company', 'pricing'].includes(current.key) && (!s.data ? <Loading /> : (
+        {['ai', 'tracking', 'company', 'pricing'].includes(current.key) && (!s.data ? <Loading /> : (
           <>
             <PageHeader title={current.label} sub={current.hint} />
             {current.key === 'ai' && <AiSettings data={s.data} onSaved={s.setData} />}
+            {current.key === 'tracking' && <TrackingSettings data={s.data} onSaved={s.setData} />}
             {current.key === 'company' && <SimpleSettings k="company" data={s.data} onSaved={s.setData} extra={(f, setF) => <LogoField value={f.logo} onChange={(logo) => setF({ ...f, logo })} />} fields={[
               { key: 'name', label: 'Company name' }, { key: 'gstin', label: 'GSTIN / BR number' }, { key: 'country', label: 'Country', type: 'select', options: [{ value: 'IN', label: 'India' }, { value: 'HK', label: 'Hong Kong' }] },
               { key: 'address', label: 'Address', span: 2 }, { key: 'phone', label: 'Phone' }, { key: 'email', label: 'Email' },
@@ -179,6 +181,31 @@ function AiSettings({ data, onSaved }) {
         <Field label="Review if confidence below" hint="0–1. Lower-confidence quotes are flagged for a person to check."><Input type="number" step="0.05" value={f.review_threshold} onChange={(e) => setF({ ...f, review_threshold: Number(e.target.value) })} /></Field>
       </div>
       <Check label="Read replies automatically as they arrive" checked={f.auto_parse} onChange={(v) => setF({ ...f, auto_parse: v })} />
+    </Card>
+  );
+}
+
+function TrackingSettings({ data, onSaved }) {
+  const t = data.tracking;
+  const providers = useLoad(() => api.get('/tracking/providers'));
+  const [f, setF] = useState({ provider: t.provider, enabled: t.enabled, poll_hours: t.poll_hours, auto_milestones: t.auto_milestones, email_milestones: t.email_milestones, eta_change_hours: t.eta_change_hours, notify_agents_default: t.notify_agents_default, api_key: '' });
+  const [busy, run] = useAction();
+  const prov = (providers.data || []).find((p) => p.code === f.provider);
+  return (
+    <Card title="Live tracking" actions={<Button busy={busy} onClick={() => run('x', async () => { onSaved(await api.put('/settings/tracking', f)); setF({ ...f, api_key: '' }); }, 'Tracking settings saved')}>Save</Button>}>
+      <p className="muted small">Quayly follows each booked job by its BL, booking or container number (AWB for air), moves the job to departed and arrived on its own, and emails your customer with a tracking link. Status: {t.has_key ? <Badge color="green">your API key</Badge> : t.platform_key ? <Badge color="green">included in your plan</Badge> : <Badge color="amber">no API key — tracking is off</Badge>}</p>
+      <div className="grid g3">
+        <Field label="Tracking data provider"><Select value={f.provider} onChange={(e) => setF({ ...f, provider: e.target.value })} options={(providers.data || []).map((p) => ({ value: p.code, label: `${p.name} (${p.modes.join(' + ')})` }))} /></Field>
+        <Field label={`${prov?.name || 'Provider'} API key`} hint={<>Stored encrypted. Leave blank to keep the current key. {prov?.signup && <a href={prov.signup} target="_blank" rel="noreferrer">Get a key</a>}</>}><Input type="password" value={f.api_key} onChange={(e) => setF({ ...f, api_key: e.target.value })} /></Field>
+        <Field label="Check each shipment every (hours)" hint="Each check uses provider quota. 6 hours suits most sea shipments."><Input type="number" min="1" value={f.poll_hours} onChange={(e) => setF({ ...f, poll_hours: Number(e.target.value) })} /></Field>
+        <Field label="Email the customer when ETA moves by (hours)"><Input type="number" min="1" value={f.eta_change_hours} onChange={(e) => setF({ ...f, eta_change_hours: Number(e.target.value) })} /></Field>
+      </div>
+      <div className="stack-sm" style={{ marginTop: 10 }}>
+        <Check label="Live tracking on" checked={f.enabled} onChange={(v) => setF({ ...f, enabled: v })} />
+        <Check label="Move jobs to departed / arrived automatically from tracking" checked={f.auto_milestones} onChange={(v) => setF({ ...f, auto_milestones: v })} />
+        <Check label="Email milestone and ETA updates to the customer" checked={f.email_milestones} onChange={(v) => setF({ ...f, email_milestones: v })} />
+        <Check label="For new jobs, also email updates to the partner agents" checked={f.notify_agents_default} onChange={(v) => setF({ ...f, notify_agents_default: v })} />
+      </div>
     </Card>
   );
 }

@@ -4,6 +4,7 @@ import { q, one, tx } from '../db.js';
 import { randomTag } from '../lib/crypto.js';
 import { mailRequester, mailBookingAgent, filesForMail } from './requesterMail.js';
 import { recordAgentBl, fileAttachments, documentsState } from './documents.js';
+import { applyMilestone, notifyMilestone, trackingState, trackUrlFor } from './tracking.js';
 import { bookingRequestEmail, customerBookingEmail, JOB_TAG_REGEX } from './templates.js';
 import { jobPlanFromOption, jobProfit, deriveJobStatus, cutoffsDue, bookingChanges, MILESTONES, tzOffset } from '../engines/jobs.js';
 import { attachmentBlocks } from './extract.js';
@@ -35,9 +36,9 @@ export async function createJobFromQuote(customerQuoteId, option, user) {
   const plan = jobPlanFromOption(opt, currency);
   const job = await tx(async (t) => {
     const j = await t.one(
-      `INSERT INTO jobs(ref,rfq_id,customer_quote_id,option_index,requester_id,cargo_ready_date,customer_ref,sell_currency,created_by)
-       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
-      [await nextJobRef(t), rfq.id, cq.id, idx, rfq.requester_id, rfq.ready_date || null, rfq.requester_ref || null, currency, user?.id || null]
+      `INSERT INTO jobs(ref,rfq_id,customer_quote_id,option_index,requester_id,cargo_ready_date,customer_ref,sell_currency,created_by,notify_agents)
+       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
+      [await nextJobRef(t), rfq.id, cq.id, idx, rfq.requester_id, rfq.ready_date || null, rfq.requester_ref || null, currency, user?.id || null, !!(await getSetting('tracking')).notify_agents_default]
     );
     const agentOf = {};
     for (const b of plan.bookings) {
@@ -91,7 +92,7 @@ export async function loadJob(id) {
        FROM emails e WHERE e.job_id=$1 ORDER BY e.at DESC`, [id]),
   ]);
   const fx = await getFx();
-  return { job, rfq, bookings, costs, files, emails, docs: await documentsState(job, rfq, files), profit: jobProfit(costs, fx), profit_quote_currency: job.sell_currency ? jobProfit(costs, fx, job.sell_currency) : null };
+  return { job, rfq, bookings, costs, files, emails, docs: await documentsState(job, rfq, files), tracking: await trackingState(id), profit: jobProfit(costs, fx), profit_quote_currency: job.sell_currency ? jobProfit(costs, fx, job.sell_currency) : null };
 }
 
 export async function updateJob(id, body) {
@@ -117,22 +118,15 @@ async function refreshStatus(jobId) {
 }
 
 /** Departed / arrived / completed / cancelled — set by a person. 'reopen' goes back to the booking-derived status. */
-export async function setMilestone(jobId, { status, date }) {
+export async function setMilestone(jobId, { status, date, notify }) {
   if (status === 'reopen') {
     await q("UPDATE jobs SET status='open', closed_at=NULL WHERE id=$1", [jobId]);
     await refreshStatus(jobId);
     return loadJob(jobId);
   }
   if (!MILESTONES.includes(status)) throw err('Unknown milestone');
-  const d = blank(date) || new Date().toISOString().slice(0, 10);
-  await q(
-    `UPDATE jobs SET status=$1,
-       atd=CASE WHEN $1='departed' THEN $2::date ELSE atd END,
-       ata=CASE WHEN $1='arrived' THEN $2::date ELSE ata END,
-       closed_at=CASE WHEN $1 IN ('completed','cancelled') THEN now() ELSE closed_at END
-     WHERE id=$3`,
-    [status, d, jobId]
-  );
+  await applyMilestone(jobId, status, blank(date), { override: true });
+  if (status !== 'cancelled' && notify !== false) await notifyMilestone(jobId, status).catch((e) => console.error('milestone mail', e.message));
   return loadJob(jobId);
 }
 
@@ -266,7 +260,8 @@ export async function sendCustomerConfirmation(jobId, { note, to } = {}, user) {
   const job = await one('SELECT * FROM jobs WHERE id=$1', [jobId]);
   const bookings = await q("SELECT * FROM bookings WHERE job_id=$1 AND status='confirmed' ORDER BY id", [jobId]);
   if (!bookings.length) throw err('No confirmed booking yet');
-  await mailRequester(job.rfq_id, (ctx) => customerBookingEmail({ ...ctx, job, bookings, note }), { to, kind: 'booking_confirmation', refSuffix: job.ref, jobId });
+  const trackUrl = job.track_enabled ? await trackUrlFor(jobId) : null;
+  await mailRequester(job.rfq_id, (ctx) => customerBookingEmail({ ...ctx, job, bookings, note, trackUrl }), { to, kind: 'booking_confirmation', refSuffix: job.ref, jobId });
   await q("UPDATE jobs SET customer_notified_at=now() WHERE id=$1", [jobId]);
   return loadJob(jobId);
 }

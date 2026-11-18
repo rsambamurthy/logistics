@@ -3,7 +3,7 @@ import multer from 'multer';
 import { q, one, runAsTenant } from '../db.js';
 import { requireAuth, requireAdmin, requireActiveSubscription, createUser, resendInvite, login, logout, issue, listUsers, decode } from '../auth.js';
 import { LEGS, BASES, CHARGE_CODES, MODES, INCOTERMS, CURRENCIES, CONTAINER_TYPES, LEG_CODES } from '../engines/charges.js';
-import { getAllPublic, setSetting, saveAi } from '../services/settings.js';
+import { getAllPublic, setSetting, saveAi, saveTracking } from '../services/settings.js';
 import { encrypt } from '../lib/crypto.js';
 import { getMailbox, testSmtp, testImap, pollMailbox, canReceive } from '../services/mail.js';
 import { createRfq, updateRfq, duplicateRfq, loadRfq, ownRatesInvite, sendRfq, sendInvite, remindInvite, counterInvite, compareRfq, awardRfq } from '../services/rfq.js';
@@ -22,6 +22,7 @@ import { auditMiddleware, listAudit } from '../services/audit.js';
 import { onboardingStatus } from '../services/onboarding.js';
 import { createJobFromQuote, listJobs, loadJob, updateJob, setMilestone, sendBookingRequest, sendAllBookingRequests, updateBooking, readBookingEmail, sendCustomerConfirmation, addCost, deleteCost, addFiles, getFile, deleteFile, upcomingCutoffs, jobCounts } from '../services/jobs.js';
 import { setDocRequirement, requestDocuments, getSi, saveSi, prefillSi, renderSiPdf, sendSi, readBl, uploadBl, sendBlToCustomer, customerDecision, replyAgentOnBl, setFileKind, onCustomerJobEmail } from '../services/documents.js';
+import { publicTracking, tenantOfToken, refreshJob, addTrackingNumber, removeTracking, setJobTracking, resetTrackLink, trackToken, notifyMilestone, providerList } from '../services/tracking.js';
 import billing from './billing.js';
 import platform from './platform.js';
 
@@ -53,6 +54,17 @@ r.post('/login', authLimit, h(async (req, res) => {
     throw e;
   }
 }));
+// public shipment tracking page (no login): the token carries the tenant
+r.get('/public/track/:token', rateLimit({ max: 60 }), async (req, res, next) => {
+  try {
+    const tenant = await getTenant(tenantOfToken(req.params.token)).catch(() => null);
+    if (!tenant) return res.status(404).json({ error: 'This tracking link is not valid.' });
+    const data = await runAsTenant(tenant, () => publicTracking(req.params.token));
+    if (!data) return res.status(404).json({ error: 'This tracking link is not valid or has been switched off.' });
+    res.json(data);
+  } catch (e) { next(e); }
+});
+
 // account links (public)
 r.post('/auth/forgot', mailLimit, h(async (req, res) => { await requestPasswordReset(req.body.email); res.json({ ok: true }); }));
 r.get('/auth/check', h(async (req, res) => {
@@ -94,6 +106,8 @@ r.post('/users/:id/resend-invite', requireAdmin, h(async (req, res) => { await r
 
 // ---------- settings ----------
 r.get('/settings', h(async (req, res) => res.json(await getAllPublic())));
+r.put('/settings/tracking', requireAdmin, h(async (req, res) => { await saveTracking(req.body); res.json(await getAllPublic()); }));
+r.get('/tracking/providers', h(async (req, res) => res.json(providerList())));
 r.put('/settings/ai', requireAdmin, h(async (req, res) => { await saveAi(req.body); res.json(await getAllPublic()); }));
 r.put('/settings/:key', requireAdmin, h(async (req, res) => {
   if (!['company', 'fx', 'pricing'].includes(req.params.key)) return res.status(400).json({ error: 'Unknown setting' });
@@ -394,6 +408,17 @@ r.post('/emails/:id/read-customer', h(async (req, res) => {
   await onCustomerJobEmail(e);
   res.json(await loadJob(e.job_id));
 }));
+// ---------- live tracking ----------
+r.post('/jobs/:id/tracking/refresh', h(async (req, res) => { const errors = await refreshJob(id(req)); res.json({ ...(await loadJob(id(req))), warnings: errors }); }));
+r.post('/jobs/:id/tracking', h(async (req, res) => { await addTrackingNumber(id(req), req.body); res.json(await loadJob(id(req))); }));
+r.put('/jobs/:id/tracking', h(async (req, res) => { await setJobTracking(id(req), req.body); res.json(await loadJob(id(req))); }));
+r.post('/jobs/:id/tracking/link', h(async (req, res) => { await (req.body.reset ? resetTrackLink(id(req)) : trackToken(id(req))); res.json(await loadJob(id(req))); }));
+r.post('/jobs/:id/notify', h(async (req, res) => {
+  const sent = await notifyMilestone(id(req), req.body.kind, {});
+  if (!sent) return res.status(400).json({ error: 'Not sent: milestone emails are off in Settings, or this update was already sent.' });
+  res.json(await loadJob(id(req)));
+}));
+r.delete('/tracking/:id', h(async (req, res) => res.json(await loadJob(await removeTracking(id(req))))));
 r.post('/bookings/:id/send', h(async (req, res) => res.json(await sendBookingRequest(id(req), req.body, req.user))));
 r.put('/bookings/:id', h(async (req, res) => res.json(await updateBooking(id(req), req.body))));
 r.post('/emails/:id/read-booking', h(async (req, res) => {

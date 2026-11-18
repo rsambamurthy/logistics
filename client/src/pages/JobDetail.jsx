@@ -7,6 +7,7 @@ import { routeOf, cargoOf } from '../components/rfq.jsx';
 import { StatusBadge, BOOKING_STATUS, PartyFields, BookingForm, BookingSummary, ProfitSummary, LegList } from '../components/jobs.jsx';
 import ActivityList from '../components/ActivityList.jsx';
 import JobDocuments from '../components/JobDocuments.jsx';
+import JobTracking from '../components/JobTracking.jsx';
 
 
 function Overview({ d, set, reload }) {
@@ -24,7 +25,7 @@ function Overview({ d, set, reload }) {
       <Card title="Progress" actions={
         <div className="row gap-sm wrap">
           {confirmed > 0 && <Button small variant={job.customer_notified_at ? 'ghost' : 'primary'} onClick={() => setNotify({ to: job.customer_email || '', note: '' })}>{job.customer_notified_at ? 'Resend booking details to customer' : 'Send booking details to customer'}</Button>}
-          {milestones.map((m) => <Button key={m} small onClick={() => setMile({ status: m, date: new Date().toISOString().slice(0, 10) })}>Mark {m}</Button>)}
+          {milestones.map((m) => <Button key={m} small onClick={() => setMile({ status: m, date: new Date().toISOString().slice(0, 10), notify: true })}>Mark {m}</Button>)}
           {!['completed', 'cancelled'].includes(job.status) && <Button small variant="ghost" onClick={() => setMile({ status: 'cancelled' })}>Cancel job</Button>}
           {['completed', 'cancelled'].includes(job.status) && <Button small variant="ghost" busy={busy === 're'} onClick={() => run('re', async () => set(await api.post(`/jobs/${job.id}/milestone`, { status: 'reopen' })), 'Job reopened')}>Reopen</Button>}
         </div>
@@ -38,6 +39,7 @@ function Overview({ d, set, reload }) {
           <div><dt>Profit</dt><dd className={d.profit.profit < 0 ? 'err' : ''}>{money(d.profit.profit, d.profit.currency)}</dd></div>
         </dl>
       </Card>
+      <JobTracking d={d} set={set} />
       <Card title="Shipment" actions={<Link to={`/rfqs/${rfq?.id}`}>Open {job.rfq_ref}</Link>}>
         <dl className="kv">
           <div><dt>Customer</dt><dd>{job.customer || '—'}</dd></div>
@@ -71,6 +73,7 @@ function Overview({ d, set, reload }) {
       {mile && (
         <Modal title={mile.status === 'cancelled' ? 'Cancel this job?' : `Mark job ${mile.status}`} onClose={() => setMile(null)} footer={<Button busy={busy === 'm'} onClick={() => run('m', async () => { set(await api.post(`/jobs/${job.id}/milestone`, mile)); setMile(null); }, 'Updated')}>{mile.status === 'cancelled' ? 'Cancel job' : 'Save'}</Button>}>
           {mile.status !== 'cancelled' && <Field label="Date"><Input type="date" value={mile.date} onChange={(e) => setMile({ ...mile, date: e.target.value })} /></Field>}
+          {mile.status !== 'cancelled' && <Check label="Email this update to the customer (with tracking link)" checked={mile.notify} onChange={(v) => setMile({ ...mile, notify: v })} />}
           {mile.status === 'cancelled' && <p>Agents are not told automatically. Email them if a booking needs cancelling.</p>}
         </Modal>
       )}

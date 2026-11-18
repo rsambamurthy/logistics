@@ -199,7 +199,7 @@ ${note ? `<p>${esc(note).replace(/\n/g, '<br>')}</p>` : ''}<p style="color:#5a6b
   return { subject: `Booking request ${rfq.pol || ''} to ${rfq.pod || ''} ${tag}`.replace(/\s+/g, ' '), text, html };
 }
 
-export function customerBookingEmail({ job, bookings, rfq, customer, mb, note }) {
+export function customerBookingEmail({ job, bookings, rfq, customer, mb, note, trackUrl }) {
   const blocks = bookings.map((b) => [
     ['Covers', (b.legs || []).map(legName).join(', ')],
     ['Booking no.', b.booking_no],
@@ -216,10 +216,10 @@ export function customerBookingEmail({ job, bookings, rfq, customer, mb, note })
   ].filter(([, v]) => v));
   const greet = `Dear ${customer?.contact || customer?.name || 'Sir/Madam'},`;
   const intro = `Your shipment ${job.ref}${job.customer_ref ? ` (your ref ${job.customer_ref})` : ''} for ${routeText(rfq)} is booked. Details below.`;
-  const text = [greet, '', intro, '', ...blocks.flatMap((rows) => [...rows.map(([k, v]) => `${k}: ${v}`), '']), note || '', 'Please share the shipping instructions and documents before the cut-offs.', '', 'Regards,', signatureBlock(mb)].join('\n');
+  const text = [greet, '', intro, '', ...blocks.flatMap((rows) => [...rows.map(([k, v]) => `${k}: ${v}`), '']), note || '', 'Please share the shipping instructions and documents before the cut-offs.', trackUrl ? `\nTrack your shipment live: ${trackUrl}` : '', '', 'Regards,', signatureBlock(mb)].join('\n');
   const html = `<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#1d2433"><p>${esc(greet)}</p><p>${esc(intro)}</p>
 ${blocks.map((rows) => `<table cellpadding="6" style="border-collapse:collapse;border:1px solid #d6dce5;margin-bottom:10px">${rows.map(([k, v]) => `<tr><td style="background:#f2f5f9;border:1px solid #d6dce5;font-weight:bold">${esc(k)}</td><td style="border:1px solid #d6dce5">${esc(v)}</td></tr>`).join('')}</table>`).join('')}
-${note ? `<p>${esc(note)}</p>` : ''}<p>Please share the shipping instructions and documents before the cut-offs.</p><p>Regards,<br>${esc(signatureBlock(mb)).replace(/\n/g, '<br>')}</p></div>`;
+${note ? `<p>${esc(note)}</p>` : ''}<p>Please share the shipping instructions and documents before the cut-offs.</p>${trackUrl ? `<p><a href="${esc(trackUrl)}" style="background:#0b6bff;color:#fff;padding:9px 16px;border-radius:6px;text-decoration:none;font-weight:bold">Track your shipment</a></p>` : ''}<p>Regards,<br>${esc(signatureBlock(mb)).replace(/\n/g, '<br>')}</p></div>`;
   return { subject: `Booking confirmed ${job.ref} — ${routeText(rfq)}`, text, html };
 }
 
@@ -227,7 +227,7 @@ ${note ? `<p>${esc(note)}</p>` : ''}<p>Please share the shipping instructions an
 /** Greeting, paragraphs and an optional list; shared by the document emails. */
 function listEmail({ greet, before = [], list = [], after = [], mb }) {
   const text = [greet, '', ...before.flatMap((p) => [p, '']), ...list.map((l) => `- ${l}`), list.length ? '' : null, ...after.flatMap((p) => [p, '']), 'Regards,', signatureBlock(mb)].filter((x) => x !== null).join('\n');
-  const html = `<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#1d2433"><p>${esc(greet)}</p>${before.map((p) => `<p>${esc(p).replace(/\n/g, '<br>')}</p>`).join('')}${list.length ? `<ul>${list.map((l) => `<li>${esc(l)}</li>`).join('')}</ul>` : ''}${after.map((p) => `<p>${esc(p).replace(/\n/g, '<br>')}</p>`).join('')}<p>Regards,<br>${esc(signatureBlock(mb)).replace(/\n/g, '<br>')}</p></div>`;
+  const html = `<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#1d2433"><p>${esc(greet)}</p>${before.map((p) => `<p>${esc(p).replace(/\n/g, '<br>')}</p>`).join('')}${list.length ? `<ul>${list.map((l) => `<li>${esc(l)}</li>`).join('')}</ul>` : ''}${after.map((p) => (/^Track your shipment live: /.test(p) ? `<p><a href="${esc(p.replace(/^Track your shipment live: /, ''))}" style="background:#0b6bff;color:#fff;padding:9px 16px;border-radius:6px;text-decoration:none;font-weight:bold">Track your shipment</a></p>` : `<p>${esc(p).replace(/\n/g, '<br>')}</p>`)).join('')}<p>Regards,<br>${esc(signatureBlock(mb)).replace(/\n/g, '<br>')}</p></div>`;
   return { text, html };
 }
 const dear = (p) => `Dear ${p?.contact || p?.name || p?.company || 'Sir/Madam'},`;
@@ -255,7 +255,7 @@ export function siEmail({ job, booking, rfq, agent, mb, note, amended }) {
   };
 }
 
-export function blToCustomerEmail({ job, rfq, customer, mb, draft, note, docLabel }) {
+export function blToCustomerEmail({ job, rfq, customer, mb, draft, note, docLabel, trackUrl }) {
   return {
     subject: `${draft ? `Draft ${docLabel} for approval` : `${docLabel} copy`} — ${job.ref}`,
     ...listEmail({
@@ -263,7 +263,7 @@ export function blToCustomerEmail({ job, rfq, customer, mb, draft, note, docLabe
       before: [draft
         ? `Please find attached the draft ${docLabel} for your shipment ${job.ref} (${routeText(rfq)}). Kindly check all details and reply with your approval or any corrections.`
         : `Please find attached a copy of the ${docLabel} for your shipment ${job.ref} (${routeText(rfq)}).`],
-      after: [note].filter(Boolean),
+      after: [note, trackUrl && `Track your shipment live: ${trackUrl}`].filter(Boolean),
     }),
   };
 }
@@ -277,6 +277,36 @@ export function blDecisionEmail({ job, booking, agent, mb, approve, corrections,
       before: [approve ? `The draft ${docLabel} for ${job.ref} is approved. Please go ahead and issue the final.` : `Please correct the draft ${docLabel} for ${job.ref} as below and send a revised draft:`],
       list: approve ? [] : String(corrections || '').split('\n').map((l) => l.replace(/^[-•*]\s*/, '').trim()).filter(Boolean),
       after: [note].filter(Boolean),
+    }),
+  };
+}
+
+// ---------------- milestones / tracking ----------------
+const MILESTONE_TEXT = {
+  departed: (r) => `Your shipment has departed${r.pol ? ` from ${r.pol}` : ''}.`,
+  arrived: (r) => `Your shipment has arrived${r.pod ? ` at ${r.pod}` : ''}.`,
+  completed: () => 'Your shipment is completed. Thank you for shipping with us.',
+  eta: () => 'The expected arrival date of your shipment has changed.',
+};
+const MILESTONE_SUBJECT = { departed: 'Departed', arrived: 'Arrived', completed: 'Completed', eta: 'ETA update' };
+
+/** Milestone update for the customer (or a partner agent), with the tracking link. */
+export function milestoneEmail({ job, rfq, customer, mb, kind, info, trackUrl, toAgent }) {
+  const rows = [
+    ['Shipment', `${job.ref}${job.customer_ref ? ` (your ref ${job.customer_ref})` : ''}`],
+    ['Route', routeText(rfq)],
+    [rfq.mode === 'AIR' ? 'Flight' : 'Vessel / voyage', info.flight || [info.vessel, info.voyage].filter(Boolean).join(' / ') || null],
+    [rfq.mode === 'AIR' ? 'AWB' : 'BL', job.bl_no || info.bl || null],
+    ['Departed', info.atd ? fmtDT(info.atd) : null],
+    [info.arrived ? 'Arrived' : 'Expected arrival', info.eta ? fmtDT(info.eta) : null],
+    ['Previous estimate', kind === 'eta' && info.previous_eta ? fmtDT(info.previous_eta) : null],
+  ].filter(([, v]) => v);
+  return {
+    subject: `${MILESTONE_SUBJECT[kind]}: ${job.ref} — ${routeText(rfq)}`,
+    ...listEmail({
+      greet: dear(customer), mb,
+      before: [MILESTONE_TEXT[kind](info), rows.map(([k, v]) => `${k}: ${v}`).join('\n')],
+      after: [trackUrl && !toAgent ? `Track your shipment live: ${trackUrl}` : null].filter(Boolean),
     }),
   };
 }

@@ -11,6 +11,7 @@ import { forEachTenant } from './services/tenants.js';
 import { quoteHousekeeping } from './services/customerQuote.js';
 import { PRODUCT } from './lib/brand.js';
 import { lifecycleSweep } from './services/lifecycle.js';
+import { trackingSweep } from './services/tracking.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -49,6 +50,8 @@ const port = Number(process.env.PORT || 3000);
     try { await forEachTenant(() => pollAll()); } catch (e) { console.error('poll', e.message); } finally { busy = false; }
   }, POLL_SECONDS * 1000);
   setInterval(() => forEachTenant(async () => { await autoRemind(); await quoteHousekeeping(); }).catch((e) => console.error('housekeeping', e.message)), 15 * 60 * 1000);
+  // live tracking: due shipments every 30 minutes (each provider call has a quota, so polling is per job setting)
+  setInterval(() => forEachTenant(() => trackingSweep()).catch((e) => console.error('tracking', e.message)), 30 * 60 * 1000);
   // account emails (trial reminders, overdue notices): shortly after start, then hourly
   const sweep = () => lifecycleSweep().then((n) => n && console.log(`lifecycle emails sent: ${n}`)).catch((e) => console.error('lifecycle', e.message));
   setTimeout(sweep, 60 * 1000);

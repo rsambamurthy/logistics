@@ -29,6 +29,16 @@ export const DEFAULTS = {
     terms: 'Rates subject to space and equipment availability at time of booking.\nCharges not mentioned are payable at actuals.\nValidity as stated; surcharges as per carrier at time of shipment.',
   },
   onboarding: { dismissed: false },
+  tracking: {
+    provider: 'searates',
+    key_enc: null,
+    enabled: true,
+    poll_hours: 6,
+    auto_milestones: true,
+    email_milestones: true,
+    eta_change_hours: 24,
+    notify_agents_default: false,
+  },
   ai: {
     model: 'claude-sonnet-5-5',
     key_enc: null,
@@ -52,6 +62,7 @@ export async function setSetting(key, value) {
 export async function getAllPublic() {
   const out = {};
   for (const k of Object.keys(DEFAULTS)) out[k] = await getSetting(k);
+  out.tracking = { ...out.tracking, has_key: !!out.tracking.key_enc, platform_key: !!process.env.SEARATES_API_KEY, key_enc: undefined };
   out.ai = { ...out.ai, has_key: !!out.ai.key_enc, platform_key: !!process.env.ANTHROPIC_API_KEY && currentTenant()?.ai_enabled !== false, key_enc: undefined };
   return out;
 }
@@ -75,4 +86,18 @@ export async function getAiKey() {
 
 export async function getFx() {
   return getSetting('fx');
+}
+
+export async function saveTracking({ api_key, ...rest }) {
+  const patch = { ...rest };
+  if (api_key) patch.key_enc = encrypt(api_key);
+  if (api_key === '') patch.key_enc = null;
+  return setSetting('tracking', patch);
+}
+
+/** Tracking provider key: the tenant's own, else the platform's (SEARATES_API_KEY etc.). */
+export async function getTrackingConfig() {
+  const t = await getSetting('tracking');
+  const envKey = process.env[`${String(t.provider || '').toUpperCase()}_API_KEY`] || null;
+  return { ...t, key: decrypt(t.key_enc) || envKey };
 }

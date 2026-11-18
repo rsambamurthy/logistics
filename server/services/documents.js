@@ -9,6 +9,7 @@ import { readShippingInstruction, readBillOfLading, readCustomerJobEmail } from 
 import { getSetting, getAiKey } from './settings.js';
 import { createPdf, letterhead, kvRows, boxes, table, finish } from '../lib/pdf.js';
 import { audit } from './audit.js';
+import { trackUrlFor } from './tracking.js';
 
 const err = (msg, status = 400) => Object.assign(new Error(msg), { status });
 const partyLines = (p) => (p && typeof p === 'object' ? [p.name, p.address, [p.contact, p.phone, p.email].filter(Boolean).join(' / '), p.tax_id && `Tax ID: ${p.tax_id}`].filter(Boolean).join('\n') : p || '');
@@ -225,7 +226,8 @@ export async function sendBlToCustomer(blId, { note, to } = {}) {
   const { job, rfq } = await ctx(bl.job_id);
   const attachments = await filesForMail(job.id, bl.file_id ? [bl.file_id] : []);
   if (!attachments.length) throw err('This draft has no file to send');
-  const email = await mailRequester(job.rfq_id, (c) => blToCustomerEmail({ ...c, job, draft: !bl.is_final, note, docLabel: blLabel(rfq) }), { to, attachments, kind: bl.is_final ? 'final_bl' : 'draft_bl_approval', refSuffix: job.ref, jobId: job.id });
+  const trackUrl = bl.is_final && job.track_enabled ? await trackUrlFor(job.id) : null;
+  const email = await mailRequester(job.rfq_id, (c) => blToCustomerEmail({ ...c, job, draft: !bl.is_final, note, docLabel: blLabel(rfq), trackUrl }), { to, attachments, kind: bl.is_final ? 'final_bl' : 'draft_bl_approval', refSuffix: job.ref, jobId: job.id });
   await q("UPDATE bl_drafts SET status=CASE WHEN is_final THEN status ELSE 'with_customer' END, sent_to_customer_at=now(), customer_email_id=$1 WHERE id=$2", [email.email.id, blId]);
 }
 

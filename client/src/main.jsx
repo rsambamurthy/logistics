@@ -17,6 +17,7 @@ import Reports from './pages/Reports.jsx';
 import Settings from './pages/Settings.jsx';
 import Jobs from './pages/Jobs.jsx';
 import JobDetail from './pages/JobDetail.jsx';
+import Track from './pages/Track.jsx';
 
 function Shell({ user, tenant, access, onLogout }) {
   const nav = [
@@ -78,6 +79,7 @@ function App() {
     return () => { window.removeEventListener('aq:logout', h); window.removeEventListener('aq:session', load); };
   }, []);
   if (/^\/(verify|reset)$/.test(location.pathname)) return <AccountLink onDone={load} />;
+  if (/^\/track\/[^/]+$/.test(location.pathname)) return <Track />;
   if (!session) return <Loading />;
   if (!session.user) return <Login onDone={load} />;
   const logout = async () => { await api.post('/logout'); setSession({}); };

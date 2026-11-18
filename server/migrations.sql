@@ -234,3 +234,42 @@ CREATE TABLE IF NOT EXISTS bl_drafts (
   agent_reply_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ DEFAULT now()
 );
+
+-- 13. Tracking: provider snapshots, events, public link, milestone emails
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS track_token TEXT;
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS track_enabled BOOLEAN DEFAULT true;
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS notify_agents BOOLEAN DEFAULT false;
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS last_notified JSONB DEFAULT '{}';
+CREATE UNIQUE INDEX IF NOT EXISTS jobs_track_token ON jobs(track_token);
+CREATE TABLE IF NOT EXISTS tracking (
+  id SERIAL PRIMARY KEY,
+  job_id INT NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+  booking_id INT REFERENCES bookings(id) ON DELETE SET NULL,
+  provider TEXT NOT NULL,
+  mode TEXT NOT NULL,                            -- sea | air
+  number TEXT NOT NULL,
+  number_type TEXT,                              -- BL | BK | CT | AWB
+  active BOOLEAN DEFAULT true,
+  status TEXT,                                   -- provider status normalised: booked | in_transit | arrived | delivered | unknown
+  snapshot JSONB DEFAULT '{}',                   -- normalised: pol/pod, etd/eta (estimated/actual), vessel, voyage, flight, position, carrier
+  last_polled_at TIMESTAMPTZ,
+  next_poll_at TIMESTAMPTZ DEFAULT now(),
+  last_error TEXT,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  UNIQUE (job_id, number)
+);
+CREATE TABLE IF NOT EXISTS tracking_events (
+  id SERIAL PRIMARY KEY,
+  job_id INT NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+  tracking_id INT REFERENCES tracking(id) ON DELETE CASCADE,
+  code TEXT,                                     -- normalised: gate_in | loaded | departed | transshipment | arrived | discharged | picked_up | delivered | other
+  description TEXT,
+  location TEXT,
+  at TEXT,                                       -- local time as reported ('YYYY-MM-DD HH:MM')
+  actual BOOLEAN DEFAULT true,
+  container TEXT,
+  vessel TEXT, voyage TEXT,
+  source TEXT DEFAULT 'provider',                -- provider | manual
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS tracking_events_once ON tracking_events(tracking_id, code, coalesce(at,''), coalesce(location,''), coalesce(container,''));

@@ -2,8 +2,8 @@
 // their confirmations are read by AI; the customer gets the booking details; profit is tracked.
 import { q, one, tx } from '../db.js';
 import { randomTag } from '../lib/crypto.js';
-import { getMailbox, sendMail } from './mail.js';
-import { mailRequester } from './requesterMail.js';
+import { mailRequester, mailBookingAgent, filesForMail } from './requesterMail.js';
+import { recordAgentBl, fileAttachments, documentsState } from './documents.js';
 import { bookingRequestEmail, customerBookingEmail, JOB_TAG_REGEX } from './templates.js';
 import { jobPlanFromOption, jobProfit, deriveJobStatus, cutoffsDue, bookingChanges, MILESTONES, tzOffset } from '../engines/jobs.js';
 import { attachmentBlocks } from './extract.js';
@@ -91,7 +91,7 @@ export async function loadJob(id) {
        FROM emails e WHERE e.job_id=$1 ORDER BY e.at DESC`, [id]),
   ]);
   const fx = await getFx();
-  return { job, rfq, bookings, costs, files, emails, profit: jobProfit(costs, fx), profit_quote_currency: job.sell_currency ? jobProfit(costs, fx, job.sell_currency) : null };
+  return { job, rfq, bookings, costs, files, emails, docs: await documentsState(job, rfq, files), profit: jobProfit(costs, fx), profit_quote_currency: job.sell_currency ? jobProfit(costs, fx, job.sell_currency) : null };
 }
 
 export async function updateJob(id, body) {
@@ -138,30 +138,15 @@ export async function setMilestone(jobId, { status, date }) {
 
 // ---------------- bookings ----------------
 
-export async function sendBookingRequest(bookingId, { fileIds = [], note, to } = {}, user) {
+export async function sendBookingRequest(bookingId, { fileIds = [], note, to } = {}) {
   const b = await one('SELECT * FROM bookings WHERE id=$1', [bookingId]);
   if (!b) throw err('Booking not found', 404);
   if (b.source === 'own') throw err('This leg uses your own rates. Enter the booking details yourself.');
-  const job = await one('SELECT * FROM jobs WHERE id=$1', [b.job_id]);
-  const rfq = await one('SELECT * FROM rfqs WHERE id=$1', [job.rfq_id]);
-  const agent = await one('SELECT * FROM agents WHERE id=$1', [b.agent_id]);
-  const recipient = to || agent?.email;
-  if (!recipient) throw err('The agent has no email address');
-  const mb = await getMailbox(rfq.mailbox_id);
-  if (!mb) throw err('No mailbox configured');
-  // stay in the agent's quotation thread
-  const last = b.invite_id ? await one("SELECT message_id FROM emails WHERE invite_id=$1 AND message_id IS NOT NULL ORDER BY at DESC, id DESC LIMIT 1", [b.invite_id]) : null;
-  const files = fileIds.length ? await q('SELECT filename, content_type, data FROM job_files WHERE job_id=$1 AND id = ANY($2)', [job.id, fileIds.map(Number)]) : [];
-  const tpl = bookingRequestEmail({ job, booking: b, rfq, agent, mb, note });
-  const email = await sendMail(
-    mb,
-    { to: recipient, cc: agent?.cc || undefined, subject: tpl.subject, text: tpl.text, html: tpl.html, inReplyTo: last?.message_id || undefined, references: last?.message_id ? [last.message_id] : undefined, attachments: files.map((f) => ({ filename: f.filename, contentType: f.content_type, content: f.data })) },
-    { kind: 'booking_request', rfq_id: rfq.id }
-  );
-  await q('UPDATE emails SET job_id=$1, booking_id=$2 WHERE id=$3', [job.id, b.id, email.id]);
+  const files = await filesForMail(b.job_id, fileIds);
+  const email = await mailBookingAgent(b.id, (ctx) => bookingRequestEmail({ ...ctx, note }), { to, attachments: files, kind: 'booking_request' });
   await q("UPDATE bookings SET status=CASE WHEN status='confirmed' THEN status ELSE 'requested' END, requested_at=now(), message_id=$1, last_error=NULL WHERE id=$2", [email.message_id, b.id]);
-  await refreshStatus(job.id);
-  return loadJob(job.id);
+  await refreshStatus(b.job_id);
+  return loadJob(b.job_id);
 }
 
 /** Send to every agent booking not yet requested. Failures are kept on the booking. */
@@ -170,7 +155,7 @@ export async function sendAllBookingRequests(jobId, opts, user) {
   const results = [];
   for (const b of list) {
     try {
-      await sendBookingRequest(b.id, opts, user);
+      await sendBookingRequest(b.id, opts);
       results.push({ id: b.id, ok: true });
     } catch (e) {
       await q('UPDATE bookings SET last_error=$1 WHERE id=$2', [e.message.slice(0, 500), b.id]);
@@ -220,6 +205,8 @@ export async function matchBooking({ subject, text, inReplyTo, references }) {
 export async function onBookingReply(email) {
   const ai = await getSetting('ai');
   if (!ai.auto_parse || !(await getAiKey())) {
+    const atts = await q('SELECT id, filename, content_type, data FROM attachments WHERE email_id=$1', [email.id]);
+    await fileAttachments(email.job_id, email.id, atts, 'other');
     await q("UPDATE emails SET parse_status='review' WHERE id=$1", [email.id]);
     return;
   }
@@ -233,15 +220,16 @@ export async function readBookingEmail(emailId) {
   const booking = await one('SELECT * FROM bookings WHERE id=$1', [email.booking_id]);
   const job = await one('SELECT * FROM jobs WHERE id=$1', [booking.job_id]);
   const atts = await q('SELECT id, filename, content_type, data FROM attachments WHERE email_id=$1', [emailId]);
-  // keep the agent's documents with the job (once)
-  for (const a of atts) {
-    if (!(await one('SELECT 1 FROM job_files WHERE job_id=$1 AND email_id=$2 AND filename=$3', [job.id, emailId, a.filename]))) {
-      await q("INSERT INTO job_files(job_id,kind,filename,content_type,size,data,email_id) VALUES($1,'booking',$2,$3,$4,$5,$6)", [job.id, a.filename, a.content_type, a.data?.length || 0, a.data, emailId]);
-    }
-  }
   try {
     await q("UPDATE emails SET parse_status='parsing' WHERE id=$1", [emailId]);
     const r = await aiReadBooking({ job, booking, email, attachmentBlocks: atts.flatMap(attachmentBlocks) });
+    const isBl = ['draft_bl', 'final_bl'].includes(r.email_type);
+    const fileIds = await fileAttachments(job.id, emailId, atts, r.email_type === 'final_bl' ? 'bl' : r.email_type === 'draft_bl' ? 'draft_bl' : 'booking');
+    if (isBl) {
+      await recordAgentBl({ job, booking, email, fileIds, isFinal: r.email_type === 'final_bl' });
+      await q("UPDATE emails SET parse_status='parsed', parse_error=$1 WHERE id=$2", [r.summary ? r.summary.slice(0, 500) : null, emailId]);
+      return { result: r, changes: {}, status: booking.status };
+    }
     const changes = bookingChanges(booking, r);
     const sure = r.confidence >= 0.7;
     let status = booking.status;
@@ -266,10 +254,12 @@ export async function readBookingEmail(emailId) {
     });
     return { result: r, changes, status };
   } catch (e) {
+    await fileAttachments(job.id, emailId, atts, 'other');
     await q("UPDATE emails SET parse_status='error', parse_error=$1 WHERE id=$2", [e.message.slice(0, 500), emailId]);
     throw e;
   }
 }
+
 
 /** Booking details to the customer (or the partner agent who asked us), in their enquiry thread. */
 export async function sendCustomerConfirmation(jobId, { note, to } = {}, user) {
@@ -315,13 +305,19 @@ export async function deleteFile(fileId) {
 
 export async function upcomingCutoffs(hours = 72) {
   const rows = await q(
-    `SELECT b.id, b.job_id, b.status, b.cutoffs, j.ref AS job_ref, a.company AS agent
+    `SELECT b.id, b.job_id, b.status, b.cutoffs, j.ref AS job_ref, a.company AS agent,
+       (SELECT s.status IN ('sent','amended') FROM shipping_instructions s WHERE s.job_id=j.id) AS si_sent,
+       (SELECT count(*)::int FROM job_files f WHERE f.job_id=j.id AND f.kind='vgm') AS vgm_files
      FROM bookings b JOIN jobs j ON j.id=b.job_id LEFT JOIN agents a ON a.id=b.agent_id
      WHERE j.status NOT IN ('departed','arrived','completed','cancelled') AND b.cutoffs <> '{}'::jsonb`
   );
   const company = await getSetting('company');
   const due = cutoffsDue(rows, new Date(), hours, tzOffset(company?.country));
-  return due.map((d) => ({ ...d, agent: rows.find((r) => r.id === d.booking_id)?.agent }));
+  return due.map((d) => {
+    const r = rows.find((x) => x.id === d.booking_id);
+    const done = (d.key === 'si' && r?.si_sent) || (d.key === 'vgm' && r?.vgm_files > 0);
+    return { ...d, agent: r?.agent, done: !!done };
+  });
 }
 
 export async function jobCounts() {

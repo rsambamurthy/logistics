@@ -128,8 +128,8 @@ export function CutoffList({ rows, empty = 'No cut-offs in the next 3 days.' }) 
       rows={(rows || []).map((r, i) => ({ ...r, id: `${r.booking_id}-${r.key}-${i}` }))}
       empty={empty}
       columns={[
-        { label: 'When', render: (r) => <span className={r.overdue ? 'err' : ''}><b>{fmtLocal(r.at)}</b>{r.overdue ? ' (passed)' : ''}</span> },
-        { key: 'label', label: 'Cut-off' },
+        { label: 'When', render: (r) => <span className={r.overdue && !r.done ? 'err' : ''}><b>{fmtLocal(r.at)}</b>{r.overdue ? ' (passed)' : ''}</span> },
+        { label: 'Cut-off', render: (r) => <>{r.label} {r.done ? <Badge color="green">done</Badge> : null}</> },
         { label: 'Job', render: (r) => <Link to={`/jobs/${r.job_id}`}>{r.job_ref}</Link> },
         { key: 'agent', label: 'Agent' },
       ]}

@@ -222,3 +222,61 @@ ${blocks.map((rows) => `<table cellpadding="6" style="border-collapse:collapse;b
 ${note ? `<p>${esc(note)}</p>` : ''}<p>Please share the shipping instructions and documents before the cut-offs.</p><p>Regards,<br>${esc(signatureBlock(mb)).replace(/\n/g, '<br>')}</p></div>`;
   return { subject: `Booking confirmed ${job.ref} — ${routeText(rfq)}`, text, html };
 }
+
+// ---------------- documents ----------------
+/** Greeting, paragraphs and an optional list; shared by the document emails. */
+function listEmail({ greet, before = [], list = [], after = [], mb }) {
+  const text = [greet, '', ...before.flatMap((p) => [p, '']), ...list.map((l) => `- ${l}`), list.length ? '' : null, ...after.flatMap((p) => [p, '']), 'Regards,', signatureBlock(mb)].filter((x) => x !== null).join('\n');
+  const html = `<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#1d2433"><p>${esc(greet)}</p>${before.map((p) => `<p>${esc(p).replace(/\n/g, '<br>')}</p>`).join('')}${list.length ? `<ul>${list.map((l) => `<li>${esc(l)}</li>`).join('')}</ul>` : ''}${after.map((p) => `<p>${esc(p).replace(/\n/g, '<br>')}</p>`).join('')}<p>Regards,<br>${esc(signatureBlock(mb)).replace(/\n/g, '<br>')}</p></div>`;
+  return { text, html };
+}
+const dear = (p) => `Dear ${p?.contact || p?.name || p?.company || 'Sir/Madam'},`;
+
+export function documentRequestEmail({ job, rfq, customer, mb, docs, note, cutoff }) {
+  return {
+    subject: `Documents needed for ${job.ref} — ${routeText(rfq)}`,
+    ...listEmail({
+      greet: dear(customer), mb, list: docs,
+      before: [`To complete the booking and documentation for your shipment ${job.ref}${job.customer_ref ? ` (your ref ${job.customer_ref})` : ''}, please send us:`],
+      after: [cutoff ? `The documentation cut-off is ${cutoff}; please send them before then.` : null, note, 'Simply reply to this email with the documents attached.'].filter(Boolean),
+    }),
+  };
+}
+
+export function siEmail({ job, booking, rfq, agent, mb, note, amended }) {
+  const tag = `[${job.ref}/${booking.tag}]`;
+  return {
+    subject: `${amended ? 'Amended shipping' : 'Shipping'} instructions ${rfq.pol || ''} to ${rfq.pod || ''} ${tag}`.replace(/\s+/g, ' '),
+    ...listEmail({
+      greet: dear(agent), mb,
+      before: [`Please find attached ${amended ? 'our amended' : 'our'} shipping instructions for ${job.ref}${booking.booking_no ? `, booking ${booking.booking_no}` : ''}.${amended ? ' This replaces the earlier version.' : ''}`],
+      after: [note, 'Please send the draft BL / AWB for our checking before finalising. Keep the reference in the subject when replying.'].filter(Boolean),
+    }),
+  };
+}
+
+export function blToCustomerEmail({ job, rfq, customer, mb, draft, note, docLabel }) {
+  return {
+    subject: `${draft ? `Draft ${docLabel} for approval` : `${docLabel} copy`} — ${job.ref}`,
+    ...listEmail({
+      greet: dear(customer), mb,
+      before: [draft
+        ? `Please find attached the draft ${docLabel} for your shipment ${job.ref} (${routeText(rfq)}). Kindly check all details and reply with your approval or any corrections.`
+        : `Please find attached a copy of the ${docLabel} for your shipment ${job.ref} (${routeText(rfq)}).`],
+      after: [note].filter(Boolean),
+    }),
+  };
+}
+
+export function blDecisionEmail({ job, booking, agent, mb, approve, corrections, note, docLabel }) {
+  const tag = `[${job.ref}/${booking.tag}]`;
+  return {
+    subject: `${approve ? `Draft ${docLabel} approved` : `Corrections to draft ${docLabel}`} ${tag}`,
+    ...listEmail({
+      greet: dear(agent), mb,
+      before: [approve ? `The draft ${docLabel} for ${job.ref} is approved. Please go ahead and issue the final.` : `Please correct the draft ${docLabel} for ${job.ref} as below and send a revised draft:`],
+      list: approve ? [] : String(corrections || '').split('\n').map((l) => l.replace(/^[-•*]\s*/, '').trim()).filter(Boolean),
+      after: [note].filter(Boolean),
+    }),
+  };
+}

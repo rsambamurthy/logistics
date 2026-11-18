@@ -21,6 +21,7 @@ import { rateLimit } from '../lib/rateLimit.js';
 import { auditMiddleware, listAudit } from '../services/audit.js';
 import { onboardingStatus } from '../services/onboarding.js';
 import { createJobFromQuote, listJobs, loadJob, updateJob, setMilestone, sendBookingRequest, sendAllBookingRequests, updateBooking, readBookingEmail, sendCustomerConfirmation, addCost, deleteCost, addFiles, getFile, deleteFile, upcomingCutoffs, jobCounts } from '../services/jobs.js';
+import { setDocRequirement, requestDocuments, getSi, saveSi, prefillSi, renderSiPdf, sendSi, readBl, uploadBl, sendBlToCustomer, customerDecision, replyAgentOnBl, setFileKind, onCustomerJobEmail } from '../services/documents.js';
 import billing from './billing.js';
 import platform from './platform.js';
 
@@ -364,6 +365,35 @@ r.get('/job-files/:id', h(async (req, res) => {
   res.send(f.data);
 }));
 r.delete('/job-files/:id', h(async (req, res) => res.json(await deleteFile(id(req)))));
+// ---------- job documents ----------
+const jobOfBl = async (blId) => (await one('SELECT job_id FROM bl_drafts WHERE id=$1', [blId]))?.job_id;
+r.post('/jobs/:id/doc-requirement', h(async (req, res) => { await setDocRequirement(id(req), req.body); res.json(await loadJob(id(req))); }));
+r.post('/jobs/:id/request-documents', h(async (req, res) => { await requestDocuments(id(req), req.body); res.json(await loadJob(id(req))); }));
+r.get('/jobs/:id/si', h(async (req, res) => res.json(await getSi(id(req)))));
+r.put('/jobs/:id/si', h(async (req, res) => res.json(await saveSi(id(req), req.body))));
+r.post('/jobs/:id/si/prefill', h(async (req, res) => res.json(await prefillSi(id(req)))));
+r.get('/jobs/:id/si/pdf', h(async (req, res) => {
+  const buf = await renderSiPdf(id(req));
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', `inline; filename="SI-${id(req)}.pdf"`);
+  res.send(buf);
+}));
+r.post('/jobs/:id/si/send', h(async (req, res) => { await sendSi(id(req), req.body); res.json(await loadJob(id(req))); }));
+r.post('/jobs/:id/bl', upload.single('file'), h(async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'Choose a file' });
+  await uploadBl(id(req), req.file, req.body, req.user);
+  res.json(await loadJob(id(req)));
+}));
+r.post('/bl/:id/read', h(async (req, res) => { await readBl(id(req)); res.json(await loadJob(await jobOfBl(id(req)))); }));
+r.post('/bl/:id/send-customer', h(async (req, res) => { await sendBlToCustomer(id(req), req.body); res.json(await loadJob(await jobOfBl(id(req)))); }));
+r.post('/bl/:id/customer-decision', h(async (req, res) => { await customerDecision(id(req), req.body); res.json(await loadJob(await jobOfBl(id(req)))); }));
+r.post('/bl/:id/reply-agent', h(async (req, res) => { await replyAgentOnBl(id(req), req.body); res.json(await loadJob(await jobOfBl(id(req)))); }));
+r.put('/job-files/:id', h(async (req, res) => res.json(await loadJob(await setFileKind(id(req), req.body.kind)))));
+r.post('/emails/:id/read-customer', h(async (req, res) => {
+  const e = await one('SELECT * FROM emails WHERE id=$1', [id(req)]);
+  await onCustomerJobEmail(e);
+  res.json(await loadJob(e.job_id));
+}));
 r.post('/bookings/:id/send', h(async (req, res) => res.json(await sendBookingRequest(id(req), req.body, req.user))));
 r.put('/bookings/:id', h(async (req, res) => res.json(await updateBooking(id(req), req.body))));
 r.post('/emails/:id/read-booking', h(async (req, res) => {

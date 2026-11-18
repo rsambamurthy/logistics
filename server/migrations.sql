@@ -199,3 +199,38 @@ ALTER TABLE emails ADD COLUMN IF NOT EXISTS job_id INT;
 ALTER TABLE emails ADD COLUMN IF NOT EXISTS booking_id INT;
 ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS job_id INT;
 ALTER TABLE jobs ADD COLUMN IF NOT EXISTS customer_notified_at TIMESTAMPTZ;
+
+-- 12. Documents: shipping instructions, draft / final BL-AWB, checklist
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS doc_waived TEXT[] DEFAULT '{}';
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS doc_extra TEXT[] DEFAULT '{}';
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS docs_requested_at TIMESTAMPTZ;
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS bl_no TEXT;
+CREATE TABLE IF NOT EXISTS shipping_instructions (
+  id SERIAL PRIMARY KEY,
+  job_id INT NOT NULL UNIQUE REFERENCES jobs(id) ON DELETE CASCADE,
+  booking_id INT REFERENCES bookings(id) ON DELETE SET NULL,
+  data JSONB NOT NULL DEFAULT '{}',
+  status TEXT NOT NULL DEFAULT 'draft',          -- draft | sent | amended (changed after sending)
+  source TEXT DEFAULT 'manual',                  -- manual | ai
+  sent_at TIMESTAMPTZ,
+  sent_count INT DEFAULT 0,
+  updated_at TIMESTAMPTZ DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS bl_drafts (
+  id SERIAL PRIMARY KEY,
+  job_id INT NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+  booking_id INT REFERENCES bookings(id) ON DELETE SET NULL,
+  is_final BOOLEAN NOT NULL DEFAULT false,
+  version INT NOT NULL DEFAULT 1,
+  file_id INT REFERENCES job_files(id) ON DELETE SET NULL,
+  email_id INT,
+  extracted JSONB DEFAULT '{}',
+  discrepancies JSONB DEFAULT '[]',
+  confidence NUMERIC,
+  status TEXT NOT NULL DEFAULT 'received',       -- received | with_customer | customer_approved | customer_corrections | approved | corrections_sent | final
+  customer_note TEXT,
+  customer_email_id INT,
+  sent_to_customer_at TIMESTAMPTZ,
+  agent_reply_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ DEFAULT now()
+);

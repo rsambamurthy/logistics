@@ -8,6 +8,7 @@ import { createRfqFromEmail } from './intake.js';
 import { rememberQuote } from './rateCards.js';
 import { audit } from './audit.js';
 import { matchBooking, onBookingReply } from './jobs.js';
+import { matchJobCustomer, onCustomerJobEmail } from './documents.js';
 
 const addr = (a) => (a?.value || []).map((v) => v.address?.toLowerCase()).filter(Boolean);
 
@@ -79,6 +80,17 @@ export async function ingestInbound(mb, parsed) {
       subject: parsed.subject || '', text, html: typeof parsed.html === 'string' ? parsed.html : null, attachments: mailAttachments, at: parsed.date,
     });
     onBookingReply(email).catch((e) => console.error('booking reply', e.message));
+    return email;
+  }
+  // the customer writing about a job (documents, draft approval)
+  const job = await matchJobCustomer({ subject: parsed.subject, inReplyTo: parsed.inReplyTo, references: parsed.references });
+  if (job) {
+    const email = await storeInbound({
+      mailboxId: mb.id, rfqId: job.rfq_id, jobId: job.id, kind: 'job_customer_reply', status: 'pending',
+      messageId, inReplyTo: parsed.inReplyTo, from, to: addr(parsed.to).join(', '), cc: addr(parsed.cc).join(', '),
+      subject: parsed.subject || '', text, html: typeof parsed.html === 'string' ? parsed.html : null, attachments: mailAttachments, at: parsed.date,
+    });
+    onCustomerJobEmail(email).catch((e) => console.error('customer job email', e.message));
     return email;
   }
   let { invite, rfqId, method } = await matchInvite({ subject: parsed.subject, text, inReplyTo: parsed.inReplyTo, references: parsed.references, from });

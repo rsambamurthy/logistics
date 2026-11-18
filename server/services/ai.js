@@ -294,6 +294,7 @@ const BOOKING_TOOL = {
   input_schema: {
     type: 'object',
     properties: {
+      email_type: { type: 'string', enum: ['booking_confirmation', 'booking_rejected', 'draft_bl', 'final_bl', 'other'], description: 'What the email mainly is. draft_bl = a draft BL / AWB sent for checking; final_bl = the final / original / telex-released BL or AWB copy.' },
       is_confirmation: { type: 'boolean', description: 'True if the email confirms a booking (booking number, vessel/flight or schedule given).' },
       rejected: { type: 'boolean', description: 'True if the agent says the booking cannot be made (no space, rate changed, etc.).' },
       message_summary: { type: 'string' },
@@ -323,7 +324,7 @@ const BOOKING_TOOL = {
 
 /** Read a booking confirmation (email text plus PDF/image attachments). */
 export async function parseBookingReply({ job, booking, email, attachmentBlocks }) {
-  const system = `You read booking confirmations from partner agents / carriers for a C&F agent in India or Hong Kong.
+  const system = `You read emails from partner agents / carriers about a booked job (booking confirmations, draft or final BL / AWB) for a C&F agent in India or Hong Kong.
 Only use the agent's NEW reply, not the quoted booking request. Dates: convert to ISO (YYYY-MM-DD or YYYY-MM-DDTHH:MM), assume the current or next year when the year is missing. Today: ${new Date().toISOString().slice(0, 10)}. Do not invent values.`;
   const content = [
     { type: 'text', text: `Our job ${job.ref}. Booking requested for legs: ${(booking.legs || []).join(', ')}.` },
@@ -335,6 +336,7 @@ Only use the agent's NEW reply, not the quoted booking request. Dates: convert t
   const dt = (v) => { const m = /^(\d{4}-\d{2}-\d{2})(?:[T ](\d{2}:\d{2}))?/.exec(String(v || '')); return m ? (m[2] ? `${m[1]}T${m[2]}` : m[1]) : null; };
   const d = (v) => dt(v)?.slice(0, 10) || null;
   return {
+    email_type: out.email_type || (out.rejected ? 'booking_rejected' : out.is_confirmation ? 'booking_confirmation' : 'other'),
     is_confirmation: !!out.is_confirmation,
     rejected: !!out.rejected,
     summary: out.message_summary || '',
@@ -354,6 +356,103 @@ Only use the agent's NEW reply, not the quoted booking request. Dates: convert t
     remarks: out.remarks || null,
     confidence: Math.max(0, Math.min(1, Number(out.confidence ?? 0.5))),
   };
+}
+
+// ---------------- shipping documents (SI, BL, AWB) ----------------
+const PARTY = { type: 'object', properties: { name: { type: 'string' }, address: { type: 'string' }, contact: { type: 'string' }, phone: { type: 'string' }, email: { type: 'string' }, tax_id: { type: 'string' } } };
+const SHIPPING_FIELDS = {
+  shipper: PARTY,
+  consignee: PARTY,
+  notify_party: PARTY,
+  pol: { type: 'string' },
+  pod: { type: 'string' },
+  place_of_receipt: { type: 'string' },
+  place_of_delivery: { type: 'string' },
+  vessel: { type: 'string' },
+  voyage: { type: 'string' },
+  flight_no: { type: 'string' },
+  marks: { type: 'string', description: 'Marks and numbers' },
+  description: { type: 'string', description: 'Description of goods as it should appear on the BL' },
+  hs_code: { type: 'string' },
+  packages: { type: 'number' },
+  package_type: { type: 'string', description: 'e.g. cartons, pallets' },
+  gross_weight_kg: { type: 'number' },
+  net_weight_kg: { type: 'number' },
+  volume_cbm: { type: 'number' },
+  containers: { type: 'array', items: { type: 'object', properties: { number: { type: 'string' }, seal: { type: 'string' }, type: { type: 'string' }, packages: { type: 'number' }, gross_weight_kg: { type: 'number' }, volume_cbm: { type: 'number' } } } },
+  freight_terms: { type: 'string', enum: ['prepaid', 'collect'] },
+  invoice_no: { type: 'string' },
+  invoice_value: { type: 'string', description: 'Currency and amount' },
+  remarks: { type: 'string' },
+};
+const SI_TOOL = {
+  name: 'record_shipping_instruction',
+  description: 'Record shipping instruction details found in the shipper documents (invoice, packing list, SI).',
+  input_schema: { type: 'object', properties: { ...SHIPPING_FIELDS, bl_type: { type: 'string', enum: ['original', 'seaway', 'telex', 'express'] }, originals: { type: 'number' }, confidence: { type: 'number' } }, required: ['confidence'] },
+};
+const BL_TOOL = {
+  name: 'record_bill_of_lading',
+  description: 'Record what is printed on a BL or air waybill (draft or final).',
+  input_schema: {
+    type: 'object',
+    properties: {
+      ...SHIPPING_FIELDS,
+      shipper: { type: 'string', description: 'Shipper block as printed (name and address)' },
+      consignee: { type: 'string', description: 'Consignee block as printed' },
+      notify_party: { type: 'string', description: 'Notify party block as printed' },
+      bl_no: { type: 'string', description: 'BL or AWB number' },
+      is_draft: { type: 'boolean' },
+      originals: { type: 'number', description: 'Number of original BLs' },
+      release_type: { type: 'string', enum: ['original', 'seaway', 'telex', 'express', 'awb'] },
+      issue_place: { type: 'string' },
+      issue_date: { type: 'string', description: 'YYYY-MM-DD' },
+      confidence: { type: 'number' },
+    },
+    required: ['is_draft', 'confidence'],
+  },
+};
+const clean = (o) => Object.fromEntries(Object.entries(o).filter(([, v]) => v !== null && v !== undefined && v !== '' && !(Array.isArray(v) && !v.length)));
+
+/** Pre-fill shipping instructions from the shipper's documents. */
+export async function readShippingInstruction({ job, rfq, blocks }) {
+  const system = `You prepare shipping instructions for a C&F agent from the shipper's commercial invoice, packing list and any SI they sent. Use only what the documents say; leave anything unknown empty. Totals: add up the packing list when no total is printed.`;
+  const content = [{ type: 'text', text: `Job ${job.ref}. Mode ${rfq?.mode}. Route ${rfq?.pol || ''} to ${rfq?.pod || ''}.` }, ...blocks];
+  const out = await callTool({ system, content, tool: SI_TOOL, maxTokens: 4000 });
+  return clean(out);
+}
+
+/** Read a draft or final BL / AWB. */
+export async function readBillOfLading({ job, blocks }) {
+  const system = `You read a bill of lading or air waybill for a C&F agent who must check it against the shipping instructions. Copy the text as printed (do not correct spelling). Containers: number, seal and type for each.`;
+  const content = [{ type: 'text', text: `Job ${job.ref}.` }, ...blocks];
+  const out = await callTool({ system, content, tool: BL_TOOL, maxTokens: 4000 });
+  return clean(out);
+}
+
+const CUSTOMER_JOB_TOOL = {
+  name: 'read_customer_job_email',
+  description: "Record what the customer says in an email about their booked shipment.",
+  input_schema: {
+    type: 'object',
+    properties: {
+      intent: { type: 'string', enum: ['documents', 'bl_approved', 'bl_corrections', 'question', 'other'], description: 'documents = sending documents (invoice, packing list, SI...); bl_approved = OK with the draft BL/AWB; bl_corrections = asks for changes to the draft' },
+      corrections: { type: 'string', description: 'Each requested change to the draft, one per line, as the customer wrote it' },
+      attachments: { type: 'array', items: { type: 'object', properties: { filename: { type: 'string' }, doc_type: { type: 'string', enum: ['invoice', 'packing_list', 'si', 'vgm', 'shipping_bill', 'export_declaration', 'bill_of_entry', 'import_declaration', 'dg_declaration', 'coo', 'insurance', 'other'] } } } },
+      summary: { type: 'string' },
+      confidence: { type: 'number' },
+    },
+    required: ['intent', 'summary', 'confidence'],
+  },
+};
+
+/** Customer email about a job: documents, draft approval or corrections. */
+export async function readCustomerJobEmail({ job, email, attachments, blocks }) {
+  const system = `You read a customer's email to their C&F agent about a booked shipment (job ${job.ref}). Only use the customer's NEW message, not quoted earlier mails. Classify each attachment by its content.`;
+  const content = [
+    { type: 'text', text: `From: ${email.from_addr}\nSubject: ${email.subject}\nAttachments: ${attachments.map((a) => a.filename).join(', ') || 'none'}\n\n${(email.body_text || '').slice(0, 20000)}` },
+    ...blocks,
+  ];
+  return callTool({ system, content, tool: CUSTOMER_JOB_TOOL, maxTokens: 1500 });
 }
 
 export { CURRENCIES };

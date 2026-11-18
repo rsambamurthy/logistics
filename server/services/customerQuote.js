@@ -1,8 +1,5 @@
 // Customer (sell-side) quotation: options, revisions, approvals, PDF, email, follow-up and outcome.
-import PDFDocument from 'pdfkit';
-import path from 'node:path';
-import fs from 'node:fs';
-import { fileURLToPath } from 'node:url';
+import { createPdf, letterhead, kvRows, finish, BLUE } from '../lib/pdf.js';
 import { q, one, currentTenant } from '../db.js';
 import { buildQuoteOptions, diffSnapshots } from '../engines/costing.js';
 import { BASES } from '../engines/charges.js';
@@ -11,11 +8,8 @@ import { mailRequester } from './requesterMail.js';
 import { customerQuoteEmail, quoteFollowupEmail, routeText } from './templates.js';
 import { t as tr, legLabel, basisLabel } from './i18n.js';
 import { awardRfq } from './rfq.js';
-import { PRODUCT } from '../lib/brand.js';
 import { audit } from './audit.js';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const FONT_DIR = path.join(__dirname, '..', 'fonts');
 const err = (msg, status = 400) => Object.assign(new Error(msg), { status });
 
 /** RFQs a quote may draw options from: this RFQ and its linked alternatives (same family). */
@@ -108,10 +102,6 @@ export async function acceptQuote(quoteId, { option = 0, sendRegrets = true, not
 const money = (n, cur) => `${cur} ${Number(n || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const basisName = (b) => BASES.find((x) => x.code === b)?.name || b;
 
-function decodeImage(dataUrl) {
-  const m = /^data:image\/(png|jpe?g);base64,(.+)$/.exec(dataUrl || '');
-  return m ? Buffer.from(m[2], 'base64') : null;
-}
 
 export async function renderPdf(quoteId) {
   const quote = await one('SELECT * FROM customer_quotes WHERE id=$1', [quoteId]);
@@ -123,31 +113,10 @@ export async function renderPdf(quoteId) {
   const options = s.options || [{ label: null, rfq_id: rfq.id, sections: s.sections, totals: s.totals }];
   const multi = options.length > 1;
 
-  const doc = new PDFDocument({ size: 'A4', margin: 40, bufferPages: true, info: { Title: `Quotation ${quote.ref}`, Producer: PRODUCT.name } });
-  const zh = quote.language === 'zh';
-  const REG = zh ? 'zh' : 'Helvetica';
-  const BOLD = zh ? 'zh-b' : 'Helvetica-Bold';
-  if (zh) {
-    doc.registerFont('zh', path.join(FONT_DIR, 'NotoSansTC-Regular.ttf'));
-    doc.registerFont('zh-b', path.join(FONT_DIR, 'NotoSansTC-Bold.ttf'));
-  }
-  const chunks = [];
-  doc.on('data', (c) => chunks.push(c));
-  const done = new Promise((res) => doc.on('end', () => res(Buffer.concat(chunks))));
-  const blue = '#0b2a4a';
-
-  // header with optional logo
-  const logo = decodeImage(company.logo);
-  let textX = 40;
-  if (logo) {
-    try { doc.image(logo, 40, 36, { fit: [90, 50] }); textX = 140; } catch { /* unreadable logo */ }
-  }
-  doc.fillColor(blue).fontSize(17).font(BOLD).text(company.name || '', textX, 40, { width: 555 - textX });
-  doc.fontSize(8.5).font(REG).fillColor('#444').text([company.address, company.phone, company.email, company.gstin && `${company.country === 'HK' ? 'BR' : 'GSTIN'}: ${company.gstin}`].filter(Boolean).join('  |  '), textX, doc.y, { width: 555 - textX });
-  doc.y = Math.max(doc.y, logo ? 92 : doc.y);
-  doc.moveDown(0.8);
-  doc.fillColor(blue).fontSize(14).font(BOLD).text(L('quotation'), 40, doc.y, { continued: true }).font(REG).fontSize(10).fillColor('#444').text(`   ${quote.ref}`);
-  doc.moveDown(0.3);
+  const pdf = createPdf({ title: `Quotation ${quote.ref}`, zh: quote.language === 'zh' });
+  const { doc, REG, BOLD } = pdf;
+  const blue = BLUE;
+  letterhead(doc, company, pdf, L('quotation'), quote.ref);
   const cargoText = (r) => (r.mode === 'FCL' ? (r.containers || []).map((c) => `${c.qty} x ${c.type}`).join(', ') : [r.packages && `${r.packages} pkgs`, r.gross_weight_kg && `${r.gross_weight_kg} kg`, r.volume_cbm && `${r.volume_cbm} cbm`].filter(Boolean).join(' / '));
   const modeText = (m) => (m === 'AIR' ? L('air') : `${L('sea')} ${m}`);
   const info = [
@@ -165,12 +134,7 @@ export async function renderPdf(quoteId) {
     [L('reefer'), rfq.reefer_temp],
     [L('dimensions'), rfq.dimensions],
   ].filter(([, v]) => v);
-  doc.fontSize(9);
-  for (const [k, v] of info) {
-    const y = doc.y;
-    doc.font(BOLD).fillColor('#333').text(k, 40, y, { width: 110 });
-    doc.font(REG).text(String(v), 150, y, { width: 405 });
-  }
+  kvRows(doc, info, pdf);
   if (s.previous && s.changes?.length) {
     doc.moveDown(0.5).font(BOLD).fontSize(9).fillColor('#9a6700').text(`${L('replaces')} ${s.previous.ref}. ${L('changes')}:`, 40);
     doc.font(REG).fontSize(8.5).text(s.changes.map((c) => `• ${c}`).join('\n'), 50, doc.y, { width: 500 });
@@ -253,15 +217,7 @@ export async function renderPdf(quoteId) {
     doc.moveDown(0.8).font(BOLD).fontSize(9).fillColor('#333').text(L('terms'), 40);
     doc.font(REG).fontSize(8.5).fillColor('#444').text(quote.terms, 40, doc.y + 2, { width: 515 });
   }
-  // small product footer on every page
-  const range = doc.bufferedPageRange();
-  for (let i = range.start; i < range.start + range.count; i++) {
-    doc.switchToPage(i);
-    doc.page.margins.bottom = 0; // allow writing in the footer area without adding a page
-    doc.font('Helvetica').fontSize(7).fillColor('#9aa5b4').text(`Prepared with ${PRODUCT.name} · quayly.integratatech.ai`, 40, 812, { width: 515, align: 'center', lineBreak: false });
-  }
-  doc.end();
-  return done;
+  return finish(pdf);
 }
 
 /** Send something about a quotation to the RFQ's requester (in their thread). */

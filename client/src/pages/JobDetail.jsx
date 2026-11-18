@@ -6,16 +6,8 @@ import { useMeta } from '../components/meta.jsx';
 import { routeOf, cargoOf } from '../components/rfq.jsx';
 import { StatusBadge, BOOKING_STATUS, PartyFields, BookingForm, BookingSummary, ProfitSummary, LegList } from '../components/jobs.jsx';
 import ActivityList from '../components/ActivityList.jsx';
+import JobDocuments from '../components/JobDocuments.jsx';
 
-const FILE_KINDS = [
-  { value: 'invoice', label: 'Commercial invoice' },
-  { value: 'packing_list', label: 'Packing list' },
-  { value: 'si', label: 'Shipping instructions' },
-  { value: 'booking', label: 'Booking confirmation' },
-  { value: 'bl', label: 'BL / AWB' },
-  { value: 'other', label: 'Other' },
-];
-const kindName = (k) => FILE_KINDS.find((f) => f.value === k)?.label || k || 'Other';
 
 function Overview({ d, set, reload }) {
   const { job, rfq } = d;
@@ -147,7 +139,7 @@ function Bookings({ d, set }) {
           {!job.shipper?.name && <div className="alert alert-amber">Shipper is empty. Fill in Parties on the Overview tab first if the agent needs it.</div>}
           <Field label="Attach documents">
             {d.files.length ? d.files.map((f) => (
-              <Check key={f.id} label={`${f.filename} (${kindName(f.kind)})`} checked={send.fileIds.includes(f.id)} onChange={(v) => setSend({ ...send, fileIds: v ? [...send.fileIds, f.id] : send.fileIds.filter((x) => x !== f.id) })} />
+              <Check key={f.id} label={`${f.filename} (${d.docs.doc_types.find((t) => t.code === f.kind)?.name || 'Other'})`} checked={send.fileIds.includes(f.id)} onChange={(v) => setSend({ ...send, fileIds: v ? [...send.fileIds, f.id] : send.fileIds.filter((x) => x !== f.id) })} />
             )) : <span className="small muted">No documents yet. Upload them on the Documents tab.</span>}
           </Field>
           <Field label="Note to agent (optional)"><Textarea rows={3} value={send.note} onChange={(e) => setSend({ ...send, note: e.target.value })} /></Field>
@@ -211,39 +203,8 @@ function Costs({ d, set }) {
   );
 }
 
-function Documents({ d, set }) {
+function Emails({ d, set }) {
   const [busy, run] = useAction();
-  const [kind, setKind] = useState('invoice');
-  const upload = (files) => run('up', async () => {
-    const fd = new FormData();
-    for (const f of files) fd.append('files', f);
-    fd.append('kind', kind);
-    set(await api.form(`/jobs/${d.job.id}/files`, fd));
-  }, 'Uploaded');
-  return (
-    <Card title="Documents" actions={
-      <div className="row gap-sm filters">
-        <Select value={kind} onChange={(e) => setKind(e.target.value)} options={FILE_KINDS} />
-        <label className="btn btn-primary btn-sm">{busy === 'up' ? 'Uploading…' : 'Upload'}<input type="file" multiple hidden onChange={(e) => e.target.files.length && upload([...e.target.files])} /></label>
-      </div>
-    }>
-      <Table
-        rows={d.files}
-        empty="No documents yet. Upload the invoice and packing list to attach them to booking requests. Documents the agents send are added here automatically."
-        columns={[
-          { label: 'File', render: (f) => <a href={`/api/job-files/${f.id}`} target="_blank" rel="noreferrer">{f.filename}</a> },
-          { label: 'Type', render: (f) => kindName(f.kind) },
-          { label: 'From', render: (f) => (f.email_id ? 'agent email' : 'uploaded') },
-          { label: 'Size', render: (f) => `${Math.max(1, Math.round((f.size || 0) / 1024))} KB` },
-          { label: 'Added', render: (f) => fmtDateTime(f.created_at) },
-          { label: '', render: (f) => <Button small variant="ghost" busy={busy === `x${f.id}`} onClick={() => confirm('Delete this document?') && run(`x${f.id}`, async () => set(await api.del(`/job-files/${f.id}`)))}>Delete</Button> },
-        ]}
-      />
-    </Card>
-  );
-}
-
-function Emails({ d }) {
   return (
     <Card title="Emails for this job">
       <Table
@@ -252,7 +213,16 @@ function Emails({ d }) {
         columns={[
           { label: 'When', render: (e) => <span className="small">{fmtDateTime(e.at)}</span> },
           { label: '', render: (e) => <Badge color={e.direction === 'in' ? 'blue' : 'gray'}>{e.direction === 'in' ? 'in' : 'out'}</Badge> },
-          { label: 'Email', render: (e) => <details><summary>{e.subject}</summary><div className="small muted">{e.direction === 'in' ? `From ${e.from_addr}` : `To ${e.to_addr}`}</div><pre className="email-body">{e.body_text}</pre></details> },
+          { label: 'Email', render: (e) => (
+            <details>
+              <summary>{e.subject} {e.parse_status === 'review' && <Badge color="amber">check</Badge>}{e.parse_status === 'error' && <Badge color="red">AI error</Badge>}</summary>
+              <div className="small muted">{e.direction === 'in' ? `From ${e.from_addr}` : `To ${e.to_addr}`}</div>
+              {e.parse_error && <div className="small muted">{e.parse_error}</div>}
+              <pre className="email-body">{e.body_text}</pre>
+              {(e.attachments || []).map((a) => <a key={a.id} href={`/api/attachments/${a.id}`} target="_blank" rel="noreferrer">{a.filename} </a>)}
+              {e.direction === 'in' && <div><Button small variant="ghost" busy={busy === `r${e.id}`} onClick={() => run(`r${e.id}`, async () => set(await api.post(e.booking_id ? `/emails/${e.id}/read-booking` : `/emails/${e.id}/read-customer`)), 'Read again')}>Read again with AI</Button></div>}
+            </details>
+          ) },
         ]}
       />
     </Card>
@@ -283,7 +253,7 @@ export default function JobDetail() {
           { key: 'overview', label: 'Overview' },
           { key: 'bookings', label: 'Bookings', count: toCheck || null },
           { key: 'costs', label: 'Costs & profit' },
-          { key: 'docs', label: 'Documents', count: d.data.files.length || null },
+          { key: 'docs', label: 'Documents', count: d.data.docs.checklist.filter((r) => r.status === 'missing').length + d.data.docs.bls.filter((b) => ['received', 'customer_corrections', 'customer_approved'].includes(b.status)).length || null },
           { key: 'emails', label: 'Emails', count: d.data.emails.length || null },
           { key: 'history', label: 'History' },
         ]}
@@ -291,8 +261,8 @@ export default function JobDetail() {
       {tab === 'overview' && <Overview d={d.data} set={set} />}
       {tab === 'bookings' && <Bookings d={d.data} set={set} />}
       {tab === 'costs' && <Costs d={d.data} set={set} />}
-      {tab === 'docs' && <Documents d={d.data} set={set} />}
-      {tab === 'emails' && <Emails d={d.data} />}
+      {tab === 'docs' && <JobDocuments d={d.data} set={set} />}
+      {tab === 'emails' && <Emails d={d.data} set={set} />}
       {tab === 'history' && <Card title="History">{history.loading && !history.data ? <Loading /> : <ActivityList rows={history.data || []} showRfq={false} />}</Card>}
     </>
   );

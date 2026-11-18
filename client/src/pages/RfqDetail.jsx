@@ -1,9 +1,30 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { api } from '../api.js';
 import { useMeta } from '../components/meta.jsx';
 import { PageHeader, Card, Button, Badge, Table, Tabs, Modal, Field, Input, Textarea, Select, Check, Loading, ErrorBox, useLoad, useAction, money, fmtDate, fmtDateTime } from '../components/ui.jsx';
 import { ShipmentForm, AgentPicker, QuoteEditor, routeOf, cargoOf } from '../components/rfq.jsx';
+import CustomerQuoteTab from '../components/CustomerQuoteTab.jsx';
+import { useNavigate, Link } from 'react-router-dom';
+
+function AlternativeButton({ rfq, linked }) {
+  const nav = useNavigate();
+  const [open, setOpen] = useState(false);
+  const [mode, setMode] = useState(rfq.mode === 'AIR' ? 'FCL' : 'AIR');
+  const [busy, run] = useAction();
+  return (
+    <>
+      {linked?.length > 0 && <span className="small muted">Alternatives: {linked.map((l) => <Link key={l.id} to={`/rfqs/${l.id}`} className="chip" style={{ marginLeft: 4 }}>{l.ref} · {l.mode}</Link>)}</span>}
+      <Button small variant="ghost" onClick={() => setOpen(true)}>+ Add alternative</Button>
+      {open && (
+        <Modal title="Add an alternative for the same shipment" onClose={() => setOpen(false)} footer={<Button busy={busy} onClick={() => run('x', async () => { const r = await api.post(`/rfqs/${rfq.id}/duplicate`, { mode }); setOpen(false); nav(`/rfqs/${r.id}`); }, 'Alternative created. Ask agents or price from rate cards, then add it as an option on the quotation.')}>Create</Button>}>
+          <p className="muted">Creates a linked RFQ with the same cargo and route in another mode, e.g. air as well as sea. Its prices can then be offered as a second option on one quotation.</p>
+          <Field label="Mode"><Select options={[{ value: 'FCL', label: 'Sea FCL' }, { value: 'LCL', label: 'Sea LCL' }, { value: 'AIR', label: 'Air' }]} value={mode} onChange={(e) => setMode(e.target.value)} /></Field>
+        </Modal>
+      )}
+    </>
+  );
+}
 
 export default function RfqDetail() {
   const { id } = useParams();
@@ -23,6 +44,7 @@ export default function RfqDetail() {
   return (
     <>
       <PageHeader
+        actions={<AlternativeButton rfq={rfq} linked={d.data.linked} />}
         title={<>{rfq.ref} <Badge>{rfq.status}</Badge></>}
         sub={<>{rfq.requester_name ? <><b>{rfq.requester_name}</b> <Badge color={rfq.requester_role === 'agent' ? 'blue' : 'purple'}>{rfq.requester_role === 'agent' ? 'partner agent' : 'customer'}</Badge>{rfq.requester_ref ? ` ref ${rfq.requester_ref}` : ''}</> : 'No requester'} · {rfq.mode} · {routeOf(rfq)} · {cargoOf(rfq) || ''}</>}
       />
@@ -40,7 +62,7 @@ export default function RfqDetail() {
       {tab === 'agents' && <AgentsTab data={d.data} reload={d.reload} />}
       {tab === 'review' && <ReviewTab data={d.data} reload={d.reload} />}
       {tab === 'compare' && <CompareTab rfq={rfq} selection={selection} setSelection={setSelection} goQuote={() => setTab('customer')} />}
-      {tab === 'customer' && <CustomerTab data={d.data} selection={selection} reload={d.reload} goCompare={() => setTab('compare')} />}
+      {tab === 'customer' && <CustomerQuoteTab key={rfq.id} data={d.data} selection={selection} reload={d.reload} goCompare={() => setTab('compare')} />}
       {tab === 'shipment' && <ShipmentTab data={d.data} reload={d.reload} />}
     </>
   );
@@ -358,123 +380,6 @@ function CompareTab({ rfq, selection, setSelection, goQuote }) {
         <Button onClick={goQuote} disabled={!Object.keys(selection).length}>Build customer quote →</Button>
       </div>
     </Card>
-  );
-}
-
-// ---------------- Customer quote ----------------
-function CustomerTab({ data, selection, reload, goCompare }) {
-  const meta = useMeta();
-  const { rfq, customerQuotes } = data;
-  const settings = useLoad(() => api.get('/settings'));
-  const customer = useLoad(() => (rfq.requester_id ? api.get('/agents').then((l) => l.find((c) => c.id === rfq.requester_id)) : null), [rfq.requester_id]);
-  const isAgent = rfq.requester_role === 'agent';
-  const [opts, setOpts] = useState(null);
-  const [preview, setPreview] = useState(null);
-  const [busy, run] = useAction();
-  const [sendTo, setSendTo] = useState(null);
-  const [lost, setLost] = useState(null);
-  const reasons = useLoad(() => api.get('/lost-reasons'));
-  useEffect(() => {
-    if (!settings.data || opts || customer.loading) return;
-    const p = settings.data.pricing;
-    const cur = customer.data?.currency || settings.data.fx.base;
-    setOpts({ currency: cur, margin_pct: customer.data?.margin_pct ?? (isAgent ? p.default_agent_margin_pct : p.default_margin_pct), tax_pct: customer.data?.tax_pct ?? (cur === 'INR' ? p.default_tax_pct : 0), terms: p.terms, valid_until: '' });
-  }, [settings.data, customer.data, customer.loading, opts]);
-  const hasSel = Object.keys(selection).length > 0;
-  const body = useMemo(() => (opts ? { ...opts, selection } : null), [opts, selection]);
-  useEffect(() => {
-    if (!body || !hasSel) return;
-    const t = setTimeout(() => api.post(`/rfqs/${rfq.id}/customer-quote/preview`, body).then(setPreview).catch((e) => setPreview({ error: e.message })), 250);
-    return () => clearTimeout(t);
-  }, [body, hasSel, rfq.id]);
-  if (!opts) return <Loading />;
-  const floor = settings.data.pricing.floor_margin_pct;
-  const below = preview?.totals && preview.totals.margin_pct_effective < floor;
-  const save = (approved) => run('save', async () => { await api.post(`/rfqs/${rfq.id}/customer-quotes`, { ...body, approved_below_floor: approved }); await reload(); }, 'Customer quote created');
-  return (
-    <>
-      {!hasSel ? (
-        <Card><div className="empty">Pick agent quotes on the Compare tab first. <Button small variant="ghost" onClick={goCompare}>Go to Compare</Button></div></Card>
-      ) : (
-        <Card title={isAgent ? `Build quote for partner agent ${rfq.requester_name || ''}` : 'Build customer quote'}>
-          <div className="grid g5">
-            <Field label="Currency"><Select options={meta.currencies} value={opts.currency} onChange={(e) => setOpts({ ...opts, currency: e.target.value })} /></Field>
-            <Field label="Margin %"><Input type="number" step="0.5" value={opts.margin_pct} onChange={(e) => setOpts({ ...opts, margin_pct: Number(e.target.value) })} /></Field>
-            <Field label="Tax % (GST)" hint="18% India GST, 0 for Hong Kong"><Input type="number" value={opts.tax_pct} onChange={(e) => setOpts({ ...opts, tax_pct: Number(e.target.value) })} /></Field>
-            <Field label="Valid until"><Input type="date" value={opts.valid_until} onChange={(e) => setOpts({ ...opts, valid_until: e.target.value })} /></Field>
-          </div>
-          <Field label="Terms"><Textarea rows={3} value={opts.terms} onChange={(e) => setOpts({ ...opts, terms: e.target.value })} /></Field>
-          {preview?.error && <ErrorBox error={preview.error} />}
-          {preview?.sections && (
-            <div className="stack">
-              {preview.sections.map((s) => (
-                <div key={s.leg}>
-                  <div className="row between"><b>{s.name}</b><span className="muted small">from {s.agent}</span></div>
-                  <table className="table compact">
-                    <thead><tr><th>Charge</th><th>Basis</th><th style={{ textAlign: 'right' }}>Qty</th><th style={{ textAlign: 'right' }}>Buy</th><th style={{ textAlign: 'right' }}>Sell rate</th><th style={{ textAlign: 'right' }}>Sell amount</th></tr></thead>
-                    <tbody>{s.lines.map((l, i) => (
-                      <tr key={i}><td>{l.description}</td><td>{meta.basisName(l.basis)}</td><td style={{ textAlign: 'right' }}>{l.qty}</td><td style={{ textAlign: 'right' }} className="muted">{money(l.buy_rate, l.buy_currency)}</td><td style={{ textAlign: 'right' }}>{money(l.sell_rate)}</td><td style={{ textAlign: 'right' }}>{money(l.sell_amount)}</td></tr>
-                    ))}</tbody>
-                  </table>
-                </div>
-              ))}
-              <div className="totals">
-                <div>Buy cost <b>{money(preview.totals.buy, preview.currency)}</b></div>
-                <div>Sell <b>{money(preview.totals.sell, preview.currency)}</b></div>
-                <div>Profit <b className={below ? 'err' : 'ok'}>{money(preview.totals.profit, preview.currency)} ({preview.totals.margin_pct_effective}%)</b></div>
-                <div>Tax <b>{money(preview.totals.tax, preview.currency)}</b></div>
-                <div className="grand">Grand total <b>{money(preview.totals.grand_total, preview.currency)}</b></div>
-              </div>
-              {below && <div className="alert alert-amber">Margin is below the {floor}% floor. Saving needs your approval.</div>}
-              <div className="row end"><Button busy={busy === 'save'} onClick={() => save(below)}>{below ? 'Approve & create quote' : 'Create customer quote'}</Button></div>
-            </div>
-          )}
-        </Card>
-      )}
-      <Card title={isAgent ? 'Quotes sent to the agent' : 'Customer quotes'}>
-        <Table
-          rows={customerQuotes}
-          empty="None yet."
-          columns={[
-            { key: 'ref', label: 'Ref', render: (r) => <b>{r.ref}</b> },
-            { label: 'Total', render: (r) => money(r.snapshot?.totals?.grand_total, r.currency) },
-            { label: 'Profit', render: (r) => `${money(r.snapshot?.totals?.profit, r.currency)} (${r.snapshot?.totals?.margin_pct_effective}%)` },
-            { label: 'Valid until', render: (r) => fmtDate(r.valid_until) },
-            { label: 'Status', render: (r) => <><Badge>{r.status}</Badge>{r.followup_count ? <div className="small muted">followed up {r.followup_count}×</div> : null}{r.lost_reason && <div className="small err">{r.lost_reason}{r.lost_note ? ` — ${r.lost_note}` : ''}</div>}</> },
-            {
-              label: '', render: (r) => (
-                <div className="row gap-sm wrap">
-                  {r.status === 'sent' && <Button small variant="ghost" busy={busy === `f${r.id}`} onClick={() => run(`f${r.id}`, async () => { await api.post(`/customer-quotes/${r.id}/follow-up`); await reload(); }, 'Follow-up email sent')}>Follow up</Button>}
-                  {['sent', 'expired', 'draft'].includes(r.status) && <Button small variant="ghost" onClick={() => setLost({ quote: r, reason: '', note: '' })}>Lost</Button>}
-                  <a className="btn btn-ghost btn-sm" href={`/api/customer-quotes/${r.id}/pdf`} target="_blank" rel="noreferrer">PDF</a>
-                  <Button small variant="ghost" onClick={() => setSendTo({ quote: r, to: customer.data?.email || '' })}>Email</Button>
-                  {['sent', 'draft', 'expired'].includes(r.status) && <Button small busy={busy === `a${r.id}`} onClick={() => run(`a${r.id}`, async () => {
-                    if (!confirm('Mark accepted and email confirmations to the winning agents (and regret emails to the others)?')) return;
-                    const res = await api.post(`/customer-quotes/${r.id}/accept`, {});
-                    await reload();
-                    const f = res.results.filter((x) => !x.ok);
-                    if (f.length) throw new Error(`${f.length} email(s) failed: ${f[0].error}`);
-                  }, 'Accepted. Agents notified.')}>Accepted → award</Button>}
-                </div>
-              ),
-            },
-          ]}
-        />
-      </Card>
-      {lost && (
-        <Modal title={`Mark ${lost.quote.ref} as lost`} onClose={() => setLost(null)} footer={<Button busy={busy === 'lost'} disabled={!lost.reason} onClick={() => run('lost', async () => { await api.post(`/customer-quotes/${lost.quote.id}/lost`, lost); setLost(null); await reload(); }, 'Marked as lost')}>Save</Button>}>
-          <Field label="Why was it lost?"><Select placeholder="— choose —" options={reasons.data || []} value={lost.reason} onChange={(e) => setLost({ ...lost, reason: e.target.value })} /></Field>
-          <Field label={`Competitor's price, if known (${lost.quote.currency})`}><Input type="number" value={lost.competitor_price} onChange={(e) => setLost({ ...lost, competitor_price: e.target.value })} /></Field>
-          <Field label="Note"><Textarea rows={3} value={lost.note} onChange={(e) => setLost({ ...lost, note: e.target.value })} /></Field>
-        </Modal>
-      )}
-      {sendTo && (
-        <Modal title={`Email ${sendTo.quote.ref} to ${rfq.requester_name || 'requester'}`} onClose={() => setSendTo(null)} footer={<Button busy={busy === 'send'} onClick={() => run('send', async () => { await api.post(`/customer-quotes/${sendTo.quote.id}/send`, { to: sendTo.to }); setSendTo(null); await reload(); }, 'Quote emailed')}>Send with PDF</Button>}>
-          <Field label="To"><Input value={sendTo.to} onChange={(e) => setSendTo({ ...sendTo, to: e.target.value })} /></Field>
-          {data.sourceEmail && <p className="muted small">Sent as a reply in their original email thread "{data.sourceEmail.subject}".</p>}
-        </Modal>
-      )}
-    </>
   );
 }
 

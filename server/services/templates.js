@@ -40,6 +40,11 @@ function detailsRows(rfq) {
     ['Incoterm', rfq.incoterm],
     ['Equipment / cargo', equipmentText(rfq)],
     ['Commodity', rfq.commodity],
+    ['HS code', rfq.hs_code],
+    ['Dangerous goods', rfq.dangerous_goods ? ['Yes', rfq.dg_class && `class ${rfq.dg_class}`, rfq.un_number && `UN ${rfq.un_number}`].filter(Boolean).join(', ') : null],
+    ['Reefer temperature', rfq.reefer_temp],
+    ['Dimensions', rfq.dimensions],
+    ['Stackable', rfq.stackable === false ? 'No' : null],
     ['Cargo ready', rfq.ready_date ? new Date(rfq.ready_date).toDateString() : null],
     ['Notes', rfq.notes],
   ].filter(([, v]) => v);
@@ -118,9 +123,28 @@ export function regretEmail({ rfq, invite, agent, mb }) {
 }
 
 export function customerQuoteEmail({ rfq, customer, quote, mb }) {
+  const snap = quote.snapshot || {};
+  const opts = snap.options || [];
+  const fmt = (n) => `${quote.currency} ${Number(n || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
+  const zh = quote.language === 'zh';
+  const paragraphs = zh
+    ? [
+        `多謝查詢${rfq.requester_ref ? `（貴司參考編號 ${rfq.requester_ref}）` : ''}。附上 ${routeText(rfq)} 的報價單 ${quote.ref}。`,
+        opts.length > 1 ? `方案：\n${opts.map((o) => `• ${o.label}: ${fmt(o.totals.grand_total)}`).join('\n')}` : `總計：${fmt(snap.totals?.grand_total)}${quote.valid_until ? `，有效期至 ${quote.valid_until}` : ''}。`,
+        ...(snap.previous && snap.changes?.length ? [`本修訂版取代 ${snap.previous.ref}。`] : []),
+        '如確認，請回覆此電郵，我們會即時安排訂艙。',
+      ]
+    : [
+        `Thank you for your enquiry${rfq.requester_ref ? ` (your ref ${rfq.requester_ref})` : ''}. Please find attached our quotation ${quote.ref} for ${routeText(rfq)}.`,
+        opts.length > 1
+          ? `Options:\n${opts.map((o) => `• ${o.label}: ${fmt(o.totals.grand_total)}`).join('\n')}${quote.valid_until ? `\nValid until ${new Date(quote.valid_until).toDateString()}.` : ''}`
+          : `Total: ${fmt(snap.totals?.grand_total)}${quote.valid_until ? `, valid until ${new Date(quote.valid_until).toDateString()}` : ''}.`,
+        ...(snap.previous && snap.changes?.length ? [`This revision replaces ${snap.previous.ref}. Changes:\n${snap.changes.map((c) => `• ${c}`).join('\n')}`] : []),
+        opts.length > 1 ? 'Please reply with the option you prefer and we will proceed with the booking.' : 'Please reply to confirm and we will proceed with the booking.',
+      ];
   return {
-    subject: `Quotation ${quote.ref} — ${routeText(rfq)}`,
-    ...simple({ greet: `Dear ${customer?.contact || customer?.name || 'Sir/Madam'},`, mb, paragraphs: [`Thank you for your enquiry${rfq.requester_ref ? ` (your ref ${rfq.requester_ref})` : ''}. Please find attached our quotation ${quote.ref} for ${routeText(rfq)}.`, `Total: ${quote.currency} ${Number(quote.snapshot?.totals?.grand_total || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}${quote.valid_until ? `, valid until ${new Date(quote.valid_until).toDateString()}` : ''}.`, 'Please reply to confirm and we will proceed with the booking.'] }),
+    subject: `${snap.previous ? 'Revised quotation' : 'Quotation'} ${quote.ref} — ${routeText(rfq)}`,
+    ...simple({ greet: zh ? `${customer?.contact || customer?.name || ''} 您好：` : `Dear ${customer?.contact || customer?.name || 'Sir/Madam'},`, mb, paragraphs }),
   };
 }
 

@@ -80,3 +80,19 @@ test('air weight breaks and minimum', () => {
   assert.equal(lines[0].basis, 'per_shipment');
   assert.equal(lines[0].rate, 150);
 });
+
+import { buildQuoteOptions, diffSnapshots } from '../engines/costing.js';
+
+test('multi-option quote and revision diff', () => {
+  const byId = { 10: quotes[0], 11: quotes[1] };
+  const r = { ...rfq, id: 1 };
+  const a = buildQuoteOptions([{ label: 'Alpha', rfq: r, selection: { pickup: 10, freight: 10 } }, { label: 'Bravo', rfq: r, selection: { pickup: 11, freight: 11 } }], byId, { currency: 'INR', marginPct: 10 }, fx);
+  assert.equal(a.options.length, 2);
+  assert.equal(a.totals.grand_total, a.options[0].totals.grand_total);
+  assert.ok(a.options[1].totals.sell < a.options[0].totals.sell);
+  const b = buildQuoteOptions([{ label: 'Alpha', rfq: r, selection: { pickup: 11, freight: 10 } }], byId, { currency: 'INR', marginPct: 10 }, fx);
+  const d = diffSnapshots(a, b);
+  assert.ok(d.some((x) => x.includes('reduced')));
+  assert.ok(d.some((x) => x.includes('Origin trucking')));
+  assert.ok(d.some((x) => x.includes('option(s) removed')));
+});

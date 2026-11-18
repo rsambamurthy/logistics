@@ -149,3 +149,5 @@ textarea.input { resize: vertical; }
 .bar-row { display: grid; grid-template-columns: 200px 1fr 30px; gap: 10px; align-items: center; font-size: 13px; }
 .bar { background: #eef1f5; border-radius: 4px; height: 10px; overflow: hidden; }
 .bar > div { background: var(--red); height: 100%; border-radius: 4px; }
+.option-block { border: 1px solid var(--line); border-radius: 9px; padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; }
+.option-block h4 { margin: 0; }

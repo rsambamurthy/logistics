@@ -77,3 +77,25 @@ ALTER TABLE customer_quotes ADD COLUMN IF NOT EXISTS competitor_price NUMERIC;
 ALTER TABLE customer_quotes ADD COLUMN IF NOT EXISTS followup_count INT NOT NULL DEFAULT 0;
 ALTER TABLE customer_quotes ADD COLUMN IF NOT EXISTS last_followup_at TIMESTAMPTZ;
 ALTER TABLE customer_quotes ADD COLUMN IF NOT EXISTS decided_at TIMESTAMPTZ;
+
+-- 6. Linked RFQs (e.g. sea vs air alternatives), quote options, revisions, approvals
+ALTER TABLE rfqs ADD COLUMN IF NOT EXISTS parent_rfq_id INT REFERENCES rfqs(id) ON DELETE SET NULL;
+ALTER TABLE customer_quotes ADD COLUMN IF NOT EXISTS previous_id INT REFERENCES customer_quotes(id) ON DELETE SET NULL;
+ALTER TABLE customer_quotes ADD COLUMN IF NOT EXISTS accepted_option INT;
+ALTER TABLE customer_quotes ADD COLUMN IF NOT EXISTS approval_status TEXT NOT NULL DEFAULT 'not_needed';
+ALTER TABLE customer_quotes ADD COLUMN IF NOT EXISTS approval_requested_by INT;
+ALTER TABLE customer_quotes ADD COLUMN IF NOT EXISTS approved_by INT;
+ALTER TABLE customer_quotes ADD COLUMN IF NOT EXISTS approval_note TEXT;
+ALTER TABLE customer_quotes ADD COLUMN IF NOT EXISTS created_by INT;
+
+-- 7. Cargo details
+ALTER TABLE rfqs ADD COLUMN IF NOT EXISTS hs_code TEXT;
+ALTER TABLE rfqs ADD COLUMN IF NOT EXISTS dangerous_goods BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE rfqs ADD COLUMN IF NOT EXISTS dg_class TEXT;
+ALTER TABLE rfqs ADD COLUMN IF NOT EXISTS un_number TEXT;
+ALTER TABLE rfqs ADD COLUMN IF NOT EXISTS reefer_temp TEXT;
+ALTER TABLE rfqs ADD COLUMN IF NOT EXISTS dimensions TEXT;
+ALTER TABLE rfqs ADD COLUMN IF NOT EXISTS cargo_value NUMERIC;
+ALTER TABLE rfqs ADD COLUMN IF NOT EXISTS cargo_value_currency TEXT;
+ALTER TABLE rfqs ADD COLUMN IF NOT EXISTS stackable BOOLEAN;
+ALTER TABLE agents ADD COLUMN IF NOT EXISTS quote_language TEXT;

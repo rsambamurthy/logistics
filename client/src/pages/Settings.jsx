@@ -7,7 +7,7 @@ import Subscription from './Subscription.jsx';
 import { Tenants, Plans } from './Platform.jsx';
 import { api } from '../api.js';
 import { useMeta } from '../components/meta.jsx';
-import { PageHeader, Card, Table, Button, Modal, FormGrid, Field, Input, Select, Check, Badge, SideMenu, Loading, useLoad, useAction, fmtDateTime } from '../components/ui.jsx';
+import { PageHeader, Card, Table, Button, Modal, FormGrid, Field, Input, Select, Check, Badge, SideMenu, Loading, useLoad, useAction, useToast, fmtDateTime } from '../components/ui.jsx';
 
 // Settings holds everything that is not a transaction: contacts, pricing data and system setup.
 const SECTIONS = [
@@ -50,9 +50,11 @@ export default function Settings({ user }) {
           <>
             <PageHeader title={current.label} sub={current.hint} />
             {current.key === 'ai' && <AiSettings data={s.data} onSaved={s.setData} />}
-            {current.key === 'company' && <SimpleSettings k="company" data={s.data} onSaved={s.setData} fields={[
-              { key: 'name', label: 'Company name' }, { key: 'gstin', label: 'GSTIN / BR number' }, { key: 'country', label: 'Country', type: 'select', options: ['IN', 'HK'] },
+            {current.key === 'company' && <SimpleSettings k="company" data={s.data} onSaved={s.setData} extra={(f, setF) => <LogoField value={f.logo} onChange={(logo) => setF({ ...f, logo })} />} fields={[
+              { key: 'name', label: 'Company name' }, { key: 'gstin', label: 'GSTIN / BR number' }, { key: 'country', label: 'Country', type: 'select', options: [{ value: 'IN', label: 'India' }, { value: 'HK', label: 'Hong Kong' }] },
               { key: 'address', label: 'Address', span: 2 }, { key: 'phone', label: 'Phone' }, { key: 'email', label: 'Email' },
+              { key: 'bank_name', label: 'Bank name (printed on quotations)' }, { key: 'bank_account_name', label: 'Account name' }, { key: 'bank_account_no', label: 'Account number' },
+              { key: 'bank_ifsc', label: 'IFSC (India)' }, { key: 'bank_swift', label: 'SWIFT' }, { key: 'bank_branch', label: 'Branch' },
             ]} />}
             {current.key === 'pricing' && <PricingSettings data={s.data} onSaved={s.setData} />}
           </>
@@ -178,13 +180,37 @@ function AiSettings({ data, onSaved }) {
   );
 }
 
-function SimpleSettings({ k, data, onSaved, fields }) {
+function SimpleSettings({ k, data, onSaved, fields, extra }) {
   const [f, setF] = useState(data[k]);
   const [busy, run] = useAction();
   return (
     <Card actions={<Button busy={busy} onClick={() => run('x', async () => onSaved(await api.put(`/settings/${k}`, f)), 'Saved')}>Save</Button>}>
-      <FormGrid fields={fields} value={f} onChange={setF} />
+      <div className="stack">
+        {extra?.(f, setF)}
+        <FormGrid fields={fields} value={f} onChange={setF} />
+      </div>
     </Card>
+  );
+}
+
+function LogoField({ value, onChange }) {
+  const toast = useToast();
+  const pick = (file) => {
+    if (!file) return;
+    if (!/image\/(png|jpe?g)/.test(file.type)) return toast('Use a PNG or JPG image', 'error');
+    if (file.size > 400 * 1024) return toast('Logo must be under 400 KB', 'error');
+    const r = new FileReader();
+    r.onload = () => onChange(r.result);
+    r.readAsDataURL(file);
+  };
+  return (
+    <Field label="Logo (printed on quotations)">
+      <div className="row gap">
+        {value ? <img src={value} alt="logo" style={{ maxHeight: 50, maxWidth: 160, border: '1px solid var(--line)', borderRadius: 6, padding: 4 }} /> : <span className="muted small">No logo</span>}
+        <input type="file" accept="image/png,image/jpeg" onChange={(e) => pick(e.target.files[0])} />
+        {value && <button type="button" className="link" onClick={() => onChange('')}>remove</button>}
+      </div>
+    </Field>
   );
 }
 
@@ -226,7 +252,7 @@ function Users({ admin }) {
       <Table rows={list.data} columns={[{ key: 'name', label: 'Name' }, { key: 'email', label: 'Email' }, { key: 'role', label: 'Role' }]} />
       {f && (
         <Modal title="Add user" onClose={() => setF(null)} footer={<Button busy={busy} onClick={() => run('x', async () => { await api.post('/users', f); setF(null); list.reload(); }, 'User added')}>Add</Button>}>
-          <FormGrid cols={2} value={f} onChange={setF} fields={[{ key: 'name', label: 'Name' }, { key: 'email', label: 'Email', type: 'email' }, { key: 'password', label: 'Temporary password', type: 'password' }, { key: 'role', label: 'Role', type: 'select', options: ['user', 'admin'] }]} />
+          <FormGrid cols={2} value={f} onChange={setF} fields={[{ key: 'name', label: 'Name' }, { key: 'email', label: 'Email', type: 'email' }, { key: 'password', label: 'Temporary password', type: 'password' }, { key: 'role', label: 'Role', type: 'select', options: [{ value: 'user', label: 'User' }, { value: 'manager', label: 'Manager (approves low-margin quotes)' }, { value: 'admin', label: 'Admin (everything incl. settings)' }] }]} />
         </Modal>
       )}
     </Card>

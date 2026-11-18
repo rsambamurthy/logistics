@@ -159,3 +159,53 @@ export function buildCustomerQuote(rfq, selection, quotesById, opts, fx) {
     fx_snapshot: { base: fx.base, rates: fx.rates, at: new Date().toISOString() },
   };
 }
+
+/**
+ * A quotation with one or more options (e.g. two carriers, or sea vs air from a linked RFQ).
+ * options: [{ label, rfq, selection, margin_pct?, leg_margins? }]
+ * The first option is mirrored at the top level so single-option readers keep working.
+ */
+export function buildQuoteOptions(options, quotesById, { currency, marginPct = 0, taxPct = 0 }, fx) {
+  if (!options?.length) throw new Error('Add at least one option');
+  const built = options.map((o, i) => {
+    const b = buildCustomerQuote(o.rfq, o.selection, quotesById, { currency, marginPct: o.margin_pct ?? marginPct, taxPct, legMargins: o.leg_margins || {} }, fx);
+    return {
+      label: o.label || `Option ${String.fromCharCode(65 + i)}`,
+      rfq_id: o.rfq.id,
+      mode: o.rfq.mode,
+      selection: o.selection,
+      transit_days: o.transit_days ?? null,
+      ...b,
+    };
+  });
+  return { currency, options: built, sections: built[0].sections, totals: built[0].totals, fx_snapshot: built[0].fx_snapshot };
+}
+
+const legTotals = (opt) => Object.fromEntries((opt?.sections || []).map((s) => [s.leg, s.subtotal]));
+
+/** Human-readable changes between two quotation snapshots (for revisions). */
+export function diffSnapshots(prev, next, fmt = (n) => Number(n).toFixed(2)) {
+  if (!prev || !next) return [];
+  const out = [];
+  const cur = next.currency;
+  if (prev.currency !== next.currency) out.push(`Currency changed from ${prev.currency} to ${next.currency}`);
+  const po = prev.options || [{ label: 'Option A', ...prev }];
+  const no = next.options || [{ label: 'Option A', ...next }];
+  no.forEach((n, i) => {
+    const p = po[i];
+    const label = no.length > 1 ? `${n.label}: ` : '';
+    if (!p) return out.push(`${label}new option added`);
+    const a = p.totals?.grand_total;
+    const b = n.totals?.grand_total;
+    if (a !== b) out.push(`${label}total ${b < a ? 'reduced' : 'increased'} from ${cur} ${fmt(a)} to ${cur} ${fmt(b)}`);
+    const pl = legTotals(p);
+    const nl = legTotals(n);
+    for (const s of n.sections || []) {
+      if (!(s.leg in pl)) out.push(`${label}${s.name} added (${cur} ${fmt(s.subtotal)})`);
+      else if (pl[s.leg] !== nl[s.leg]) out.push(`${label}${s.name}: ${cur} ${fmt(pl[s.leg])} → ${cur} ${fmt(nl[s.leg])}`);
+    }
+    for (const s of p.sections || []) if (!(s.leg in nl)) out.push(`${label}${s.name} removed`);
+  });
+  if (po.length > no.length) out.push(`${po.length - no.length} option(s) removed`);
+  return out;
+}

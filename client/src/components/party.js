@@ -19,6 +19,7 @@ export function partyFields(currencies) {
     { key: 'currency', label: 'Quote them in', type: 'select', options: currencies, placeholder: 'Default' },
     { key: 'margin_pct', label: 'Our margin % when quoting them', type: 'number', hint: 'Blank = default for customers / agents' },
     { key: 'tax_pct', label: 'Tax % on our quotes', type: 'number', hint: 'Blank = 18% on INR quotes, 0 otherwise' },
+    { key: 'quote_language', label: 'Quotation language', type: 'select', options: [{ value: 'en', label: 'English' }, { value: 'zh', label: '繁體中文' }], placeholder: 'English' },
     { key: 'notes', label: 'Notes', type: 'textarea', span: 3, rows: 2 },
   ];
 }

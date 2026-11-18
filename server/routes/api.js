@@ -6,12 +6,13 @@ import { LEGS, BASES, CHARGE_CODES, MODES, INCOTERMS, CURRENCIES, CONTAINER_TYPE
 import { getAllPublic, setSetting, saveAi } from '../services/settings.js';
 import { encrypt } from '../lib/crypto.js';
 import { getMailbox, testSmtp, testImap, pollMailbox, canReceive } from '../services/mail.js';
-import { createRfq, updateRfq, loadRfq, ownRatesInvite, sendRfq, sendInvite, remindInvite, counterInvite, compareRfq, awardRfq } from '../services/rfq.js';
+import { createRfq, updateRfq, duplicateRfq, loadRfq, ownRatesInvite, sendRfq, sendInvite, remindInvite, counterInvite, compareRfq, awardRfq } from '../services/rfq.js';
 import { ingestManual, parseEmail, assignEmail, saveQuote } from '../services/replies.js';
 import { createRfqFromEmail } from '../services/intake.js';
 import { listCards, getCard, saveCard, copyCard, deleteCard, applyRateCards, templateWorkbook, importRateCards, expiringCount } from '../services/rateCards.js';
 import { parseEnquiry } from '../services/ai.js';
-import { previewCustomerQuote, saveCustomerQuote, renderPdf, emailCustomerQuote, followUpQuote, markLost, LOST_REASONS } from '../services/customerQuote.js';
+import { previewCustomerQuote, saveCustomerQuote, renderPdf, emailCustomerQuote, followUpQuote, markLost, LOST_REASONS, decideApproval, acceptQuote, rfqFamily } from '../services/customerQuote.js';
+import { LANGUAGES } from '../services/i18n.js';
 import { reports } from '../services/reports.js';
 import { signUp, getTenant, accessState, usage, assertCanCreateRfq } from '../services/tenants.js';
 import billing from './billing.js';
@@ -51,7 +52,7 @@ r.use(requireActiveSubscription);
 r.use('/billing', billing.router);
 r.use('/platform', platform);
 
-r.get('/meta', (req, res) => res.json({ legs: LEGS, bases: BASES, charges: CHARGE_CODES.map(({ synonyms, ...c }) => c), modes: MODES, incoterms: INCOTERMS, currencies: CURRENCIES, containerTypes: CONTAINER_TYPES }));
+r.get('/meta', (req, res) => res.json({ languages: LANGUAGES, roles: ['user', 'manager', 'admin'], legs: LEGS, bases: BASES, charges: CHARGE_CODES.map(({ synonyms, ...c }) => c), modes: MODES, incoterms: INCOTERMS, currencies: CURRENCIES, containerTypes: CONTAINER_TYPES }));
 
 // ---------- users ----------
 r.get('/users', requireAdmin, h(async (req, res) => res.json(await listUsers())));
@@ -106,7 +107,7 @@ r.post('/mailboxes/:id/poll', h(async (req, res) => {
 }));
 
 // ---------- parties (one list: partner agents and/or customers) ----------
-const PARTY_FIELDS = ['company', 'contact', 'email', 'cc', 'country', 'city', 'agent_type', 'services', 'ports', 'notes', 'active', 'is_agent', 'is_customer', 'currency', 'margin_pct', 'tax_pct'];
+const PARTY_FIELDS = ['company', 'contact', 'email', 'cc', 'country', 'city', 'agent_type', 'services', 'ports', 'notes', 'active', 'is_agent', 'is_customer', 'currency', 'margin_pct', 'tax_pct', 'quote_language'];
 r.get('/agents', h(async (req, res) => {
   const role = req.query.role;
   const where = role === 'agent' ? 'WHERE is_agent' : role === 'customer' ? 'WHERE is_customer' : "WHERE coalesce(source,'') <> 'internal'";
@@ -159,8 +160,9 @@ r.get('/dashboard', h(async (req, res) => {
   const review = await one(`SELECT count(*)::int AS n FROM agent_quotes q JOIN rfqs r ON r.id=q.rfq_id WHERE NOT q.verified AND NOT q.superseded AND NOT q.declined AND r.status IN ('sent','quoting')`);
   const unmatched = await one(`SELECT count(*)::int AS n FROM emails WHERE direction='in' AND invite_id IS NULL AND parse_status='unmatched'`);
   const errors = await one(`SELECT count(*)::int AS n FROM emails WHERE parse_status='error'`);
+  const approvals = await one("SELECT count(*)::int AS n FROM customer_quotes WHERE approval_status='pending'");
   const rc = await expiringCount();
-  res.json({ ...s, rate_cards_expiring: rc.expiring, rate_cards_expired: rc.expired, needs_review: review.n, unmatched: unmatched.n, parse_errors: errors.n });
+  res.json({ ...s, approvals_pending: approvals.n, rate_cards_expiring: rc.expiring, rate_cards_expired: rc.expired, needs_review: review.n, unmatched: unmatched.n, parse_errors: errors.n });
 }));
 
 r.get('/rfqs', h(async (req, res) => {
@@ -263,7 +265,15 @@ r.put('/agent-quotes/:id', h(async (req, res) => {
 
 // ---------- customer quotes ----------
 r.post('/rfqs/:id/customer-quote/preview', h(async (req, res) => res.json(await previewCustomerQuote(id(req), req.body))));
-r.post('/rfqs/:id/customer-quotes', h(async (req, res) => res.json(await saveCustomerQuote(id(req), req.body))));
+r.post('/rfqs/:id/customer-quotes', h(async (req, res) => res.json(await saveCustomerQuote(id(req), req.body, req.user))));
+r.post('/customer-quotes/:id/approval', h(async (req, res) => { await decideApproval(id(req), req.user, req.body); res.json({ ok: true }); }));
+r.get('/rfqs/:id/family', h(async (req, res) => res.json(await rfqFamily(id(req)))));
+r.post('/rfqs/:id/duplicate', h(async (req, res) => {
+  await assertCanCreateRfq(req.tenant);
+  const rfq = await duplicateRfq(id(req), req.body, req.user.id);
+  try { await applyRateCards(rfq.id); } catch (e) { console.error('rate cards', e.message); }
+  res.json(rfq);
+}));
 r.get('/customer-quotes/:id/pdf', h(async (req, res) => {
   const cq = await one('SELECT ref FROM customer_quotes WHERE id=$1', [id(req)]);
   const pdf = await renderPdf(id(req));
@@ -277,10 +287,7 @@ r.post('/customer-quotes/:id/lost', h(async (req, res) => { await markLost(id(re
 r.get('/lost-reasons', (req, res) => res.json(LOST_REASONS));
 r.get('/reports', h(async (req, res) => res.json(await reports(req.query))));
 r.post('/customer-quotes/:id/accept', h(async (req, res) => {
-  const cq = await one('SELECT * FROM customer_quotes WHERE id=$1', [id(req)]);
-  await q("UPDATE customer_quotes SET status='accepted', accepted_at=now(), decided_at=now() WHERE id=$1", [cq.id]);
-  await q("UPDATE customer_quotes SET status='superseded' WHERE rfq_id=$1 AND id<>$2 AND status IN ('draft','sent')", [cq.rfq_id, cq.id]);
-  const results = req.body.award === false ? [] : await awardRfq(cq.rfq_id, cq.selection, { sendRegrets: req.body.sendRegrets !== false, note: req.body.note });
+  const results = await acceptQuote(id(req), { option: Number(req.body.option) || 0, sendRegrets: req.body.sendRegrets !== false, note: req.body.note, award: req.body.award !== false });
   res.json({ ok: true, results });
 }));
 

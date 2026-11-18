@@ -6,7 +6,7 @@ import { rfqEmail, reminderEmail, counterEmail, awardEmail, regretEmail } from '
 import { compare } from '../engines/costing.js';
 import { getFx } from './settings.js';
 
-const RFQ_FIELDS = ['requester_id', 'requester_role', 'requester_ref', 'source_email_id', 'mailbox_id', 'mode', 'pol', 'pod', 'pickup_place', 'delivery_place', 'incoterm', 'commodity', 'containers', 'packages', 'gross_weight_kg', 'volume_cbm', 'ready_date', 'deadline', 'notes', 'legs'];
+const RFQ_FIELDS = ['requester_id', 'requester_role', 'requester_ref', 'source_email_id', 'parent_rfq_id', 'hs_code', 'dangerous_goods', 'dg_class', 'un_number', 'reefer_temp', 'dimensions', 'cargo_value', 'cargo_value_currency', 'stackable', 'mailbox_id', 'mode', 'pol', 'pod', 'pickup_place', 'delivery_place', 'incoterm', 'commodity', 'containers', 'packages', 'gross_weight_kg', 'volume_cbm', 'ready_date', 'deadline', 'notes', 'legs'];
 
 function clean(v) {
   return v === '' || v === undefined ? null : v;
@@ -28,6 +28,19 @@ export async function createRfq(dataIn, userId) {
   );
   if (data.invites?.length) await setInvites(rfq.id, data.invites);
   return rfq;
+}
+
+/** Create a linked alternative of an RFQ (e.g. the same shipment by air) to offer as a quote option. */
+export async function duplicateRfq(id, { mode }, userId) {
+  const src = await one('SELECT * FROM rfqs WHERE id=$1', [id]);
+  const copy = Object.fromEntries(RFQ_FIELDS.map((f) => [f, src[f]]));
+  copy.mode = mode || src.mode;
+  copy.parent_rfq_id = src.parent_rfq_id || src.id;
+  copy.source_email_id = null;
+  if (copy.mode === 'AIR') copy.legs = (src.legs || []).map((l) => l); // same legs; containers are ignored for air
+  const created = await createRfq(copy, userId);
+  await q("UPDATE rfqs SET status='draft' WHERE id=$1", [created.id]);
+  return created;
 }
 
 export async function updateRfq(id, data) {
@@ -92,7 +105,9 @@ export async function loadRfq(id) {
   );
   const customerQuotes = await q('SELECT * FROM customer_quotes WHERE rfq_id=$1 ORDER BY id DESC', [id]);
   const sourceEmail = rfq.source_email_id ? emails.find((e) => e.id === rfq.source_email_id) || null : null;
-  return { rfq, invites, quotes, emails, customerQuotes, sourceEmail };
+  const root = rfq.parent_rfq_id || rfq.id;
+  const linked = await q('SELECT id, ref, mode, status FROM rfqs WHERE (id=$1 OR parent_rfq_id=$1) AND id<>$2 ORDER BY id', [root, rfq.id]);
+  return { rfq, invites, quotes, emails, customerQuotes, sourceEmail, linked };
 }
 
 export async function compareRfq(id, currency) {

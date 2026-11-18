@@ -18,6 +18,7 @@ export default function Dashboard() {
           <Stat label="New enquiries by email" value={stats.data.new_enquiries} tone={stats.data.new_enquiries ? 'warn' : ''} />
           <Stat label="Open (waiting for agents)" value={stats.data.open} />
           <Stat label="Agent quotes to review" value={stats.data.needs_review} tone={stats.data.needs_review ? 'warn' : ''} />
+          <Stat label="Quotes awaiting approval" value={stats.data.approvals_pending} tone={stats.data.approvals_pending ? 'warn' : ''} />
           <Stat label="Quoted to customer" value={stats.data.quoted} />
           <Stat label="Awarded" value={stats.data.awarded} />
           <Stat label="Unmatched emails" value={stats.data.unmatched} tone={stats.data.unmatched ? 'warn' : ''} />

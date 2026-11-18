@@ -83,6 +83,19 @@ export function ShipmentForm({ value, onChange, parties = [], mailboxes = [] }) 
         <Field label="Commodity">{inp('commodity')}</Field>
         <Field label="Cargo ready date">{inp('ready_date', { type: 'date' })}</Field>
         <Field label="Agents reply by">{inp('deadline', { type: 'datetime-local' })}</Field>
+        <Field label="HS code">{inp('hs_code', { placeholder: 'e.g. 8708.99' })}</Field>
+        <Field label="Dimensions">{inp('dimensions', { placeholder: 'e.g. 4 pallets 120x100x150 cm' })}</Field>
+        {value.mode !== 'AIR' && <Field label="Reefer temperature">{inp('reefer_temp', { placeholder: 'e.g. -18 C (blank = dry)' })}</Field>}
+        <Field label="Cargo value (for insurance)">
+          <div className="row gap-sm"><Input type="number" value={value.cargo_value} onChange={(e) => set('cargo_value', e.target.value === '' ? '' : Number(e.target.value))} /><Select options={meta.currencies} placeholder="—" value={value.cargo_value_currency} onChange={(e) => set('cargo_value_currency', e.target.value)} /></div>
+        </Field>
+        <Field label="Dangerous goods">
+          <div className="row gap-sm">
+            <Check label="DG" checked={value.dangerous_goods} onChange={(v) => set('dangerous_goods', v)} />
+            {value.dangerous_goods && <><Input placeholder="Class" style={{ width: 70 }} value={value.dg_class} onChange={(e) => set('dg_class', e.target.value)} /><Input placeholder="UN no." style={{ width: 90 }} value={value.un_number} onChange={(e) => set('un_number', e.target.value)} /></>}
+          </div>
+        </Field>
+        {value.mode !== 'FCL' && <Field label="Stackable"><Check label="Cargo can be stacked" checked={value.stackable !== false} onChange={(v) => set('stackable', v)} /></Field>}
         <Field label="Notes for agents" span={2}><Textarea rows={2} value={value.notes} onChange={(e) => set('notes', e.target.value)} placeholder="Hazardous, temperature, special equipment…" /></Field>
       </div>
       <Field label="Legs to price"><LegPicker value={value.legs} onChange={(v) => set('legs', v)} /></Field>

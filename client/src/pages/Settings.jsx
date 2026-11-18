@@ -1,35 +1,45 @@
 import { useState } from 'react';
+import { useParams } from 'react-router-dom';
+import RateCards from './RateCards.jsx';
 import { api } from '../api.js';
 import { useMeta } from '../components/meta.jsx';
-import { PageHeader, Card, Table, Button, Modal, FormGrid, Field, Input, Select, Check, Badge, Tabs, Loading, useLoad, useAction, fmtDateTime } from '../components/ui.jsx';
+import { PageHeader, Card, Table, Button, Modal, FormGrid, Field, Input, Select, Check, Badge, SideMenu, Loading, useLoad, useAction, fmtDateTime } from '../components/ui.jsx';
+
+const SECTIONS = [
+  { key: 'mailboxes', label: 'RFQ mailboxes', hint: 'Addresses used to email agents and read replies' },
+  { key: 'rate-cards', label: 'Rate cards', hint: 'Stored buy rates that price RFQs instantly' },
+  { key: 'pricing', label: 'Pricing & FX', hint: 'Margins, tax, validity, exchange rates' },
+  { key: 'company', label: 'Company', hint: 'Details printed on quotations' },
+  { key: 'ai', label: 'AI', hint: 'Reading replies and enquiries' },
+  { key: 'users', label: 'Users', hint: 'Who can sign in' },
+];
 
 export default function Settings({ user }) {
-  const [tab, setTab] = useState('mail');
+  const { section = 'mailboxes' } = useParams();
   const s = useLoad(() => api.get('/settings'));
   const admin = user.role === 'admin';
+  const current = SECTIONS.find((x) => x.key === section) || SECTIONS[0];
   return (
-    <>
-      <PageHeader title="Settings" sub={admin ? null : 'Only admins can change settings.'} />
-      <Tabs active={tab} onChange={setTab} tabs={[
-        { key: 'mail', label: 'RFQ mailboxes' },
-        { key: 'ai', label: 'AI' },
-        { key: 'company', label: 'Company' },
-        { key: 'pricing', label: 'Pricing & FX' },
-        { key: 'users', label: 'Users' },
-      ]} />
-      {tab === 'mail' && <Mailboxes />}
-      {!s.data ? <Loading /> : (
-        <>
-          {tab === 'ai' && <AiSettings data={s.data} onSaved={s.setData} />}
-          {tab === 'company' && <SimpleSettings k="company" data={s.data} onSaved={s.setData} fields={[
-            { key: 'name', label: 'Company name' }, { key: 'gstin', label: 'GSTIN / BR number' }, { key: 'country', label: 'Country', type: 'select', options: ['IN', 'HK'] },
-            { key: 'address', label: 'Address', span: 2 }, { key: 'phone', label: 'Phone' }, { key: 'email', label: 'Email' },
-          ]} />}
-          {tab === 'pricing' && <PricingSettings data={s.data} onSaved={s.setData} />}
-        </>
-      )}
-      {tab === 'users' && <Users admin={admin} />}
-    </>
+    <div className="with-subnav">
+      <SideMenu title="Settings" items={SECTIONS.map((x) => ({ to: `/settings/${x.key}`, label: x.label, hint: x.hint }))} />
+      <div className="subnav-body">
+        {!admin && <div className="alert alert-amber">Only admins can change settings.</div>}
+        {current.key === 'mailboxes' && <><PageHeader title="RFQ mailboxes" /><Mailboxes /></>}
+        {current.key === 'rate-cards' && <RateCards />}
+        {current.key === 'users' && <><PageHeader title="Users" /><Users admin={admin} /></>}
+        {['ai', 'company', 'pricing'].includes(current.key) && (!s.data ? <Loading /> : (
+          <>
+            <PageHeader title={current.label} sub={current.hint} />
+            {current.key === 'ai' && <AiSettings data={s.data} onSaved={s.setData} />}
+            {current.key === 'company' && <SimpleSettings k="company" data={s.data} onSaved={s.setData} fields={[
+              { key: 'name', label: 'Company name' }, { key: 'gstin', label: 'GSTIN / BR number' }, { key: 'country', label: 'Country', type: 'select', options: ['IN', 'HK'] },
+              { key: 'address', label: 'Address', span: 2 }, { key: 'phone', label: 'Phone' }, { key: 'email', label: 'Email' },
+            ]} />}
+            {current.key === 'pricing' && <PricingSettings data={s.data} onSaved={s.setData} />}
+          </>
+        ))}
+      </div>
+    </div>
   );
 }
 

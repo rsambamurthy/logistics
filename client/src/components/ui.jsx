@@ -1,5 +1,6 @@
 // Reusable UI building blocks. Every page composes these — no page-specific copies.
 import { createContext, useCallback, useContext, useEffect, useState } from 'react';
+import { NavLink } from 'react-router-dom';
 
 export function Button({ variant = 'primary', small, busy, children, ...p }) {
   return (
@@ -222,3 +223,18 @@ export function useAction() {
 
 export const Loading = () => <div className="loading"><Spinner /> Loading…</div>;
 export const ErrorBox = ({ error }) => <div className="alert alert-red">{error}</div>;
+
+/** Vertical sub-menu for sections inside a page (e.g. Settings). items: [{ to, label, hint }] */
+export function SideMenu({ title, items }) {
+  return (
+    <nav className="subnav">
+      {title && <div className="subnav-title">{title}</div>}
+      {items.map((i) => (
+        <NavLink key={i.to} to={i.to} className="subnav-item">
+          <span>{i.label}</span>
+          {i.hint && <small>{i.hint}</small>}
+        </NavLink>
+      ))}
+    </nav>
+  );
+}

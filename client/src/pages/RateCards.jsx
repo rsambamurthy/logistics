@@ -42,7 +42,7 @@ export default function RateCards() {
         </>}
       />
       <Card actions={null}>
-        <div className="row gap wrap" style={{ marginBottom: 12 }}>
+        <div className="row gap wrap filters" style={{ marginBottom: 12 }}>
           <Select placeholder="All legs" options={meta.legOptions} value={filters.leg} onChange={(e) => setFilters({ ...filters, leg: e.target.value })} />
           <Select placeholder="All vendors" options={[{ value: 'own', label: 'Our own rates' }, ...(vendors.data || []).map((v) => ({ value: v.id, label: v.company }))]} value={filters.vendor} onChange={(e) => setFilters({ ...filters, vendor: e.target.value })} />
           <Select placeholder="Any status" options={[{ value: 'active', label: 'Active' }, { value: 'expiring', label: 'Expiring in 7 days' }, { value: 'expired', label: 'Expired' }]} value={filters.status} onChange={(e) => setFilters({ ...filters, status: e.target.value })} />

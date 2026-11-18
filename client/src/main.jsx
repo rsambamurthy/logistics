@@ -13,7 +13,6 @@ import Agents from './pages/Agents.jsx';
 import Customers from './pages/Customers.jsx';
 import Inbox from './pages/Inbox.jsx';
 import Settings from './pages/Settings.jsx';
-import RateCards from './pages/RateCards.jsx';
 
 function Shell({ user, onLogout }) {
   const nav = [
@@ -22,14 +21,13 @@ function Shell({ user, onLogout }) {
     ['/inbox', 'Unmatched mail'],
     ['/agents', 'Partner agents'],
     ['/customers', 'Customers'],
-    ['/rate-cards', 'Rate cards'],
     ['/settings', 'Settings'],
   ];
   return (
     <div className="shell">
       <aside className="side">
         <div className="brand"><span className="logo">AQ</span> AgentQuote</div>
-        <nav>{nav.map(([to, label]) => <NavLink key={to} to={to} end={to === '/'} className="nav">{label}</NavLink>)}</nav>
+        <nav>{nav.map(([to, label]) => <NavLink key={to} to={to} end={to === '/' || to === '/rfqs/new'} className="nav">{label}</NavLink>)}</nav>
         <div className="side-foot">
           <div>{user.name}</div>
           <button className="link" onClick={onLogout}>Sign out</button>
@@ -43,8 +41,9 @@ function Shell({ user, onLogout }) {
           <Route path="/inbox" element={<Inbox />} />
           <Route path="/agents" element={<Agents />} />
           <Route path="/customers" element={<Customers />} />
-          <Route path="/rate-cards" element={<RateCards />} />
-          <Route path="/settings" element={<Settings user={user} />} />
+          <Route path="/rate-cards" element={<Navigate to="/settings/rate-cards" replace />} />
+          <Route path="/settings" element={<Navigate to="/settings/mailboxes" replace />} />
+          <Route path="/settings/:section" element={<Settings user={user} />} />
           <Route path="*" element={<Navigate to="/" />} />
         </Routes>
       </main>

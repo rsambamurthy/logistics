@@ -2,8 +2,9 @@
 import { q, one, tx } from '../db.js';
 import { TAG_REGEX } from './templates.js';
 import { attachmentBlocks, htmlToText } from './extract.js';
-import { parseAgentReply } from './ai.js';
-import { getSetting } from './settings.js';
+import { parseAgentReply, classifyEmail } from './ai.js';
+import { getSetting, getAiKey } from './settings.js';
+import { createRfqFromEmail } from './intake.js';
 
 const addr = (a) => (a?.value || []).map((v) => v.address?.toLowerCase()).filter(Boolean);
 
@@ -17,6 +18,9 @@ export async function matchInvite({ subject, text, inReplyTo, references, from }
   if (ids.length) {
     const e = await one("SELECT invite_id FROM emails WHERE direction='out' AND invite_id IS NOT NULL AND message_id = ANY($1) ORDER BY id DESC LIMIT 1", [ids]);
     if (e) return { invite: await one('SELECT * FROM rfq_invites WHERE id=$1', [e.invite_id]), method: 'thread' };
+    // a follow-up from the requester in their enquiry thread / our quotation thread
+    const r = await one("SELECT rfq_id FROM emails WHERE rfq_id IS NOT NULL AND invite_id IS NULL AND message_id = ANY($1) ORDER BY id DESC LIMIT 1", [ids]);
+    if (r) return { invite: null, rfqId: r.rfq_id, method: 'requester_thread' };
   }
   if (from) {
     const inv = await one(
@@ -30,12 +34,12 @@ export async function matchInvite({ subject, text, inReplyTo, references, from }
   return { invite: null, method: null };
 }
 
-async function storeInbound({ mailboxId, invite, messageId, inReplyTo, from, to, cc, subject, text, html, attachments, at }) {
+async function storeInbound({ mailboxId, invite, rfqId, kind, status, messageId, inReplyTo, from, to, cc, subject, text, html, attachments, at }) {
   return tx(async (t) => {
     const email = await t.one(
       `INSERT INTO emails(direction,kind,mailbox_id,rfq_id,invite_id,message_id,in_reply_to,from_addr,to_addr,cc_addr,subject,body_text,body_html,at,parse_status)
-       VALUES('in','agent_reply',$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,coalesce($12,now()),$13) RETURNING *`,
-      [mailboxId || null, invite?.rfq_id || null, invite?.id || null, messageId || null, inReplyTo || null, from, to, cc, subject, text, html, at || null, invite ? 'pending' : 'unmatched']
+       VALUES('in',$14,$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,coalesce($12,now()),$13) RETURNING *`,
+      [mailboxId || null, invite?.rfq_id || rfqId || null, invite?.id || null, messageId || null, inReplyTo || null, from, to, cc, subject, text, html, at || null, status || (invite ? 'pending' : 'unmatched'), kind || (invite ? 'agent_reply' : null)]
     );
     for (const a of attachments || []) {
       await t.q('INSERT INTO attachments(email_id,filename,content_type,size,data) VALUES($1,$2,$3,$4,$5)', [email.id, a.filename, a.contentType, a.size || a.content?.length || 0, a.content]);
@@ -62,10 +66,30 @@ export async function ingestInbound(mb, parsed) {
   const from = addr(parsed.from)[0] || '';
   if (from && from === String(mb.from_email).toLowerCase()) return null; // our own sent copy
   const text = parsed.text || htmlToText(parsed.html || '');
-  const { invite } = await matchInvite({ subject: parsed.subject, text, inReplyTo: parsed.inReplyTo, references: parsed.references, from });
+  let { invite, rfqId, method } = await matchInvite({ subject: parsed.subject, text, inReplyTo: parsed.inReplyTo, references: parsed.references, from });
+  let kind;
+  let status;
+  let classified = null;
+  if (method === 'requester_thread') {
+    kind = 'requester_reply';
+    status = 'requester';
+  } else if (!invite || method === 'sender') {
+    // weak or no match: let the AI decide whether this is a quote reply or a new enquiry
+    classified = await classifySafe({ from_addr: from, subject: parsed.subject, body_text: text });
+    if (classified?.type === 'new_enquiry' && classified.confidence >= 0.6) {
+      invite = null;
+      kind = 'enquiry';
+      status = 'enquiry';
+    } else if (classified && classified.type !== 'quote_reply' && method === 'sender') {
+      invite = null; // not a quote: don't attach it to the agent's open RFQ
+    }
+  }
   const email = await storeInbound({
     mailboxId: mb.id,
     invite,
+    rfqId,
+    kind,
+    status,
     messageId,
     inReplyTo: parsed.inReplyTo,
     from,
@@ -77,8 +101,22 @@ export async function ingestInbound(mb, parsed) {
     attachments: (parsed.attachments || []).filter((a) => !a.related || /pdf|sheet|excel|csv/.test(a.contentType)),
     at: parsed.date,
   });
+  if (kind === 'enquiry') {
+    await createRfqFromEmail(email.id, { mailboxId: mb.id }).catch((e) => q("UPDATE emails SET parse_status='error', parse_error=$1 WHERE id=$2", [e.message.slice(0, 500), email.id]));
+    return email;
+  }
   await maybeAutoParse(email);
   return email;
+}
+
+async function classifySafe(email) {
+  if (!(await getAiKey())) return null;
+  try {
+    return await classifyEmail(email);
+  } catch (e) {
+    console.error('classify failed', e.message);
+    return null;
+  }
 }
 
 /** Manually logged reply (pasted text + uploaded files), e.g. when an agent replied to a personal inbox. */

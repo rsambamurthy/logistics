@@ -167,12 +167,13 @@ function PricingSettings({ data, onSaved }) {
   const save = () => run('x', async () => { await api.put('/settings/pricing', p); onSaved(await api.put('/settings/fx', fx)); }, 'Saved');
   return (
     <Card actions={<Button busy={busy} onClick={save}>Save</Button>}>
-      <FormGrid value={p} onChange={setP} cols={4} fields={[
-        { key: 'default_margin_pct', label: 'Default margin %', type: 'number' },
+      <FormGrid value={p} onChange={setP} cols={5} fields={[
+        { key: 'default_margin_pct', label: 'Default margin % (customers)', type: 'number' },
+        { key: 'default_agent_margin_pct', label: 'Default margin % (partner agents)', type: 'number' },
         { key: 'floor_margin_pct', label: 'Minimum margin % (needs approval below)', type: 'number' },
         { key: 'default_tax_pct', label: 'GST % on INR quotes', type: 'number' },
         { key: 'quote_validity_days', label: 'Customer quote validity (days)', type: 'number' },
-        { key: 'terms', label: 'Default terms on customer quotes', type: 'textarea', span: 4, rows: 4 },
+        { key: 'terms', label: 'Default terms on quotations', type: 'textarea', span: 5, rows: 4 },
       ]} />
       <h4>Exchange rates</h4>
       <div className="grid g6">

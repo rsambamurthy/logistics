@@ -4,12 +4,12 @@ import { api } from '../api.js';
 import { PageHeader, Card, Button, Textarea, useLoad, useAction, useToast } from '../components/ui.jsx';
 import { ShipmentForm, AgentPicker } from '../components/rfq.jsx';
 
-const EMPTY = { mode: 'FCL', containers: [{ type: '40HC', qty: 1 }], legs: ['freight'] };
+const EMPTY = { requester_role: 'customer', mode: 'FCL', containers: [{ type: '40HC', qty: 1 }], legs: ['freight'] };
 
 export default function RfqNew() {
   const nav = useNavigate();
   const toast = useToast();
-  const customers = useLoad(() => api.get('/customers'));
+  const parties = useLoad(() => api.get('/agents'));
   const mailboxes = useLoad(() => api.get('/mailboxes'));
   const [rfq, setRfq] = useState(EMPTY);
   const [invites, setInvites] = useState([]);
@@ -18,14 +18,17 @@ export default function RfqNew() {
 
   const readEnquiry = () => run('ai', async () => {
     const r = await api.post('/enquiry/parse', { text: enquiry });
-    const match = r.customer_name && (customers.data || []).find((c) => c.name.toLowerCase().includes(r.customer_name.toLowerCase()) || r.customer_name.toLowerCase().includes(c.name.toLowerCase()));
+    const n = (r.customer_name || '').toLowerCase();
+    const match = n && (parties.data || []).find((c) => c.company.toLowerCase().includes(n) || n.includes(c.company.toLowerCase()));
     setRfq((x) => ({
       ...x,
-      ...Object.fromEntries(Object.entries(r).filter(([k, v]) => v !== null && v !== undefined && v !== '' && k !== 'customer_name')),
+      ...Object.fromEntries(Object.entries(r).filter(([k, v]) => v !== null && v !== undefined && v !== '' && !['customer_name', 'requester_reference'].includes(k))),
       containers: r.containers?.length ? r.containers : x.containers,
-      customer_id: match?.id || x.customer_id,
+      requester_ref: r.requester_reference || x.requester_ref,
+      requester_id: match?.id || x.requester_id,
+      requester_role: match ? (match.is_agent && !match.is_customer ? 'agent' : 'customer') : x.requester_role,
     }));
-    toast(match || !r.customer_name ? 'Enquiry read. Please check the details.' : `Enquiry read. Customer "${r.customer_name}" is not in your list yet.`);
+    toast(match || !r.customer_name ? 'Enquiry read. Please check the details.' : `Enquiry read. "${r.customer_name}" is not in your contacts yet.`);
   });
 
   const save = (send) => run(send ? 'send' : 'save', async () => {
@@ -46,11 +49,11 @@ export default function RfqNew() {
   return (
     <>
       <PageHeader title="New RFQ" sub="Paste the customer's enquiry, check the details, pick partner agents, send." />
-      <Card title="1. Customer enquiry (optional)" actions={<Button variant="ghost" busy={busy === 'ai'} disabled={!enquiry.trim()} onClick={readEnquiry}>Read with AI</Button>}>
+      <Card title="1. Enquiry from customer or partner agent (optional)" actions={<Button variant="ghost" busy={busy === 'ai'} disabled={!enquiry.trim()} onClick={readEnquiry}>Read with AI</Button>}>
         <Textarea rows={5} placeholder="Paste the customer's email or WhatsApp message here…" value={enquiry} onChange={(e) => setEnquiry(e.target.value)} />
       </Card>
       <Card title="2. Shipment">
-        <ShipmentForm value={rfq} onChange={setRfq} customers={customers.data || []} mailboxes={mailboxes.data || []} />
+        <ShipmentForm value={rfq} onChange={setRfq} parties={parties.data || []} mailboxes={mailboxes.data || []} />
       </Card>
       <Card title="3. Partner agents">
         <AgentPicker rfq={rfq} invites={invites} onChange={setInvites} />

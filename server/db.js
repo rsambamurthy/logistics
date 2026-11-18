@@ -48,6 +48,7 @@ export async function tx(fn) {
 }
 
 export async function migrate() {
-  const sql = fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8');
-  await pool.query(sql);
+  for (const f of ['schema.sql', 'migrations.sql']) {
+    await pool.query(fs.readFileSync(path.join(__dirname, f), 'utf8'));
+  }
 }

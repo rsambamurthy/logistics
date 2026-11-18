@@ -6,8 +6,9 @@ import { LEGS, BASES, CHARGE_CODES, MODES, INCOTERMS, CURRENCIES, CONTAINER_TYPE
 import { getAllPublic, setSetting, saveAi } from '../services/settings.js';
 import { encrypt } from '../lib/crypto.js';
 import { getMailbox, testSmtp, testImap, pollMailbox, canReceive } from '../services/mail.js';
-import { createRfq, updateRfq, loadRfq, sendRfq, sendInvite, remindInvite, counterInvite, compareRfq, awardRfq } from '../services/rfq.js';
+import { createRfq, updateRfq, loadRfq, ownRatesInvite, sendRfq, sendInvite, remindInvite, counterInvite, compareRfq, awardRfq } from '../services/rfq.js';
 import { ingestManual, parseEmail, assignEmail, saveQuote } from '../services/replies.js';
+import { createRfqFromEmail } from '../services/intake.js';
 import { parseEnquiry } from '../services/ai.js';
 import { previewCustomerQuote, saveCustomerQuote, renderPdf, emailCustomerQuote } from '../services/customerQuote.js';
 
@@ -86,22 +87,23 @@ r.post('/mailboxes/:id/poll', h(async (req, res) => {
   res.json({ new: await pollMailbox(mb) });
 }));
 
-// ---------- customers & agents ----------
-function crud(table, fields, arrays = []) {
-  r.get(`/${table}`, h(async (req, res) => res.json(await q(`SELECT * FROM ${table} ORDER BY ${fields[0]}`))));
-  r.post(`/${table}`, h(async (req, res) => {
-    const cols = fields.filter((f) => f in req.body);
-    const vals = cols.map((f) => (req.body[f] === '' ? null : req.body[f]));
-    res.json(await one(`INSERT INTO ${table}(${cols.join(',')}) VALUES(${cols.map((_, i) => `$${i + 1}`).join(',')}) RETURNING *`, vals));
-  }));
-  r.put(`/${table}/:id`, h(async (req, res) => {
-    const cols = fields.filter((f) => f in req.body);
-    const vals = cols.map((f) => (req.body[f] === '' && !arrays.includes(f) ? null : req.body[f]));
-    res.json(await one(`UPDATE ${table} SET ${cols.map((c, i) => `${c}=$${i + 1}`).join(',')} WHERE id=$${cols.length + 1} RETURNING *`, [...vals, id(req)]));
-  }));
-}
-crud('customers', ['name', 'contact', 'email', 'country', 'currency', 'margin_pct']);
-crud('agents', ['company', 'contact', 'email', 'cc', 'country', 'city', 'agent_type', 'services', 'ports', 'notes', 'active'], ['services']);
+// ---------- parties (one list: partner agents and/or customers) ----------
+const PARTY_FIELDS = ['company', 'contact', 'email', 'cc', 'country', 'city', 'agent_type', 'services', 'ports', 'notes', 'active', 'is_agent', 'is_customer', 'currency', 'margin_pct', 'tax_pct'];
+r.get('/agents', h(async (req, res) => {
+  const role = req.query.role;
+  const where = role === 'agent' ? 'WHERE is_agent' : role === 'customer' ? 'WHERE is_customer' : "WHERE coalesce(source,'') <> 'internal'";
+  res.json(await q(`SELECT * FROM agents ${where} ORDER BY company`));
+}));
+r.post('/agents', h(async (req, res) => {
+  const cols = PARTY_FIELDS.filter((f) => f in req.body);
+  const vals = cols.map((f) => (req.body[f] === '' ? null : req.body[f]));
+  res.json(await one(`INSERT INTO agents(${cols.join(',')}) VALUES(${cols.map((_, i) => `$${i + 1}`).join(',')}) RETURNING *`, vals));
+}));
+r.put('/agents/:id', h(async (req, res) => {
+  const cols = PARTY_FIELDS.filter((f) => f in req.body);
+  const vals = cols.map((f) => (req.body[f] === '' ? null : req.body[f]));
+  res.json(await one(`UPDATE agents SET ${cols.map((c, i) => `${c}=$${i + 1}`).join(',')} WHERE id=$${cols.length + 1} RETURNING *`, [...vals, id(req)]));
+}));
 
 r.get('/agents-stats', h(async (req, res) => {
   res.json(await q(`SELECT a.id,
@@ -116,7 +118,7 @@ r.get('/agents/suggest', h(async (req, res) => {
   const legs = String(req.query.legs || '').split(',').filter(Boolean);
   const places = [req.query.pol, req.query.pod, req.query.pickup, req.query.delivery].filter(Boolean).map((s) => String(s).toLowerCase());
   const agents = await q(`SELECT a.*, count(i.id)::int AS invited, count(i.replied_at)::int AS replied, count(*) FILTER (WHERE i.awarded)::int AS won
-    FROM agents a LEFT JOIN rfq_invites i ON i.agent_id=a.id WHERE a.active GROUP BY a.id`);
+    FROM agents a LEFT JOIN rfq_invites i ON i.agent_id=a.id WHERE a.active AND a.is_agent AND a.id <> $1 GROUP BY a.id`, [Number(req.query.exclude) || 0]);
   const scored = agents.map((a) => {
     const legHits = legs.filter((l) => (a.services || []).includes(l));
     const text = `${a.ports || ''} ${a.city || ''} ${a.country || ''}`.toLowerCase();
@@ -131,6 +133,7 @@ r.get('/agents/suggest', h(async (req, res) => {
 // ---------- RFQs ----------
 r.get('/dashboard', h(async (req, res) => {
   const s = await one(`SELECT
+    count(*) FILTER (WHERE status='new')::int AS new_enquiries,
     count(*) FILTER (WHERE status IN ('sent','quoting'))::int AS open,
     count(*) FILTER (WHERE status='quoted')::int AS quoted,
     count(*) FILTER (WHERE status='awarded')::int AS awarded,
@@ -142,11 +145,11 @@ r.get('/dashboard', h(async (req, res) => {
 }));
 
 r.get('/rfqs', h(async (req, res) => {
-  res.json(await q(`SELECT r.*, c.name AS customer_name,
+  res.json(await q(`SELECT r.*, p.company AS requester_name,
     (SELECT count(*)::int FROM rfq_invites i WHERE i.rfq_id=r.id) AS invites,
     (SELECT count(*)::int FROM rfq_invites i WHERE i.rfq_id=r.id AND i.replied_at IS NOT NULL) AS replies,
     (SELECT count(*)::int FROM agent_quotes q WHERE q.rfq_id=r.id AND NOT q.superseded AND NOT q.verified AND NOT q.declined) AS to_review
-    FROM rfqs r LEFT JOIN customers c ON c.id=r.customer_id ORDER BY r.id DESC LIMIT 500`));
+    FROM rfqs r LEFT JOIN agents p ON p.id=r.requester_id ORDER BY r.id DESC LIMIT 500`));
 }));
 r.post('/enquiry/parse', h(async (req, res) => res.json(await parseEnquiry(req.body.text || ''))));
 r.post('/rfqs', h(async (req, res) => res.json(await createRfq(req.body, req.user.id))));
@@ -158,6 +161,7 @@ r.get('/rfqs/:id', h(async (req, res) => {
 r.put('/rfqs/:id', h(async (req, res) => res.json(await updateRfq(id(req), req.body))));
 r.post('/rfqs/:id/status', h(async (req, res) => { await q('UPDATE rfqs SET status=$1 WHERE id=$2', [req.body.status, id(req)]); res.json({ ok: true }); }));
 r.post('/rfqs/:id/send', h(async (req, res) => res.json(await sendRfq(id(req)))));
+r.post('/rfqs/:id/own-rates', h(async (req, res) => res.json(await ownRatesInvite(id(req)))));
 r.get('/rfqs/:id/compare', h(async (req, res) => res.json(await compareRfq(id(req), req.query.currency))));
 r.post('/rfqs/:id/award', h(async (req, res) => res.json(await awardRfq(id(req), req.body.selection, req.body))));
 
@@ -172,10 +176,11 @@ r.post('/invites/:id/manual-reply', upload.array('files'), h(async (req, res) =>
 }));
 
 // ---------- emails ----------
-r.get('/inbox/unmatched', h(async (req, res) => res.json(await q(`SELECT id,from_addr,subject,at,left(body_text,400) AS preview FROM emails WHERE direction='in' AND invite_id IS NULL ORDER BY at DESC LIMIT 200`))));
+r.get('/inbox/unmatched', h(async (req, res) => res.json(await q(`SELECT id,from_addr,subject,at,left(body_text,400) AS preview FROM emails WHERE direction='in' AND invite_id IS NULL AND rfq_id IS NULL AND coalesce(parse_status,'') <> 'ignored' ORDER BY at DESC LIMIT 200`))));
 r.get('/emails/:id', h(async (req, res) => res.json(await one('SELECT * FROM emails WHERE id=$1', [id(req)]))));
 r.post('/emails/:id/assign', h(async (req, res) => res.json(await assignEmail(id(req), req.body.invite_id))));
 r.post('/emails/:id/parse', h(async (req, res) => res.json(await parseEmail(id(req)))));
+r.post('/emails/:id/create-rfq', h(async (req, res) => res.json(await createRfqFromEmail(id(req)))));
 r.post('/emails/:id/ignore', h(async (req, res) => { await q("UPDATE emails SET parse_status='ignored' WHERE id=$1", [id(req)]); res.json({ ok: true }); }));
 r.get('/attachments/:id', h(async (req, res) => {
   const a = await one('SELECT * FROM attachments WHERE id=$1', [id(req)]);

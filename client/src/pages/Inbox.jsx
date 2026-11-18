@@ -8,7 +8,7 @@ export default function Inbox() {
   const [open, setOpen] = useState(null);
   return (
     <>
-      <PageHeader title="Unmatched mail" sub="Emails that arrived in the RFQ mailbox but could not be linked to an RFQ automatically." />
+      <PageHeader title="Unmatched mail" sub="Emails the system could not file automatically: link a reply to an RFQ, or turn an enquiry into a new RFQ." />
       <Card>
         {list.loading ? <Loading /> : (
           <Table rows={list.data} empty="All incoming emails were matched." onRowClick={setOpen} columns={[
@@ -33,7 +33,8 @@ function AssignModal({ email, onClose, onDone }) {
   const [busy, run] = useAction();
   const open = (rfqs.data || []).filter((r) => ['sent', 'quoting', 'quoted'].includes(r.status));
   return (
-    <Modal wide title="Link email to an RFQ" onClose={onClose} footer={<>
+    <Modal wide title="Link this email" onClose={onClose} footer={<>
+      <Button variant="ghost" busy={busy === 'new'} onClick={() => run('new', async () => { const r = await api.post(`/emails/${email.id}/create-rfq`); onDone(); window.location.assign(`/rfqs/${r.id}`); }, 'RFQ created from this enquiry')}>It's a new enquiry → create RFQ</Button>
       <Button variant="ghost" busy={busy === 'ig'} onClick={() => run('ig', async () => { await api.post(`/emails/${email.id}/ignore`); onDone(); }, 'Ignored')}>Ignore</Button>
       <Button busy={busy === 'as'} disabled={!inviteId} onClick={() => run('as', async () => { await api.post(`/emails/${email.id}/assign`, { invite_id: Number(inviteId) }); onDone(); }, 'Linked and read with AI')}>Link & read with AI</Button>
     </>}>

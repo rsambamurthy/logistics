@@ -120,6 +120,6 @@ export function regretEmail({ rfq, invite, agent, mb }) {
 export function customerQuoteEmail({ rfq, customer, quote, mb }) {
   return {
     subject: `Quotation ${quote.ref} — ${routeText(rfq)}`,
-    ...simple({ greet: `Dear ${customer?.contact || customer?.name || 'Sir/Madam'},`, mb, paragraphs: [`Thank you for your enquiry. Please find attached our quotation ${quote.ref} for ${routeText(rfq)}.`, `Total: ${quote.currency} ${Number(quote.snapshot?.totals?.grand_total || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}${quote.valid_until ? `, valid until ${new Date(quote.valid_until).toDateString()}` : ''}.`, 'Please reply to confirm and we will proceed with the booking.'] }),
+    ...simple({ greet: `Dear ${customer?.contact || customer?.name || 'Sir/Madam'},`, mb, paragraphs: [`Thank you for your enquiry${rfq.requester_ref ? ` (your ref ${rfq.requester_ref})` : ''}. Please find attached our quotation ${quote.ref} for ${routeText(rfq)}.`, `Total: ${quote.currency} ${Number(quote.snapshot?.totals?.grand_total || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}${quote.valid_until ? `, valid until ${new Date(quote.valid_until).toDateString()}` : ''}.`, 'Please reply to confirm and we will proceed with the booking.'] }),
   };
 }

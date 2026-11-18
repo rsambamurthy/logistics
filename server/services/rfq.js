@@ -6,7 +6,7 @@ import { rfqEmail, reminderEmail, counterEmail, awardEmail, regretEmail } from '
 import { compare } from '../engines/costing.js';
 import { getFx } from './settings.js';
 
-const RFQ_FIELDS = ['customer_id', 'mailbox_id', 'mode', 'pol', 'pod', 'pickup_place', 'delivery_place', 'incoterm', 'commodity', 'containers', 'packages', 'gross_weight_kg', 'volume_cbm', 'ready_date', 'deadline', 'notes', 'legs'];
+const RFQ_FIELDS = ['requester_id', 'requester_role', 'requester_ref', 'source_email_id', 'mailbox_id', 'mode', 'pol', 'pod', 'pickup_place', 'delivery_place', 'incoterm', 'commodity', 'containers', 'packages', 'gross_weight_kg', 'volume_cbm', 'ready_date', 'deadline', 'notes', 'legs'];
 
 function clean(v) {
   return v === '' || v === undefined ? null : v;
@@ -47,7 +47,10 @@ export async function updateRfq(id, data) {
 }
 
 /** invites: [{ agent_id, legs: [] }] — adds new and updates unsent ones; never removes sent invites. */
-export async function setInvites(rfqId, invites) {
+export async function setInvites(rfqId, invitesIn) {
+  const rfq = await one('SELECT requester_id FROM rfqs WHERE id=$1', [rfqId]);
+  // never ask the requester to quote on their own enquiry
+  const invites = invitesIn.filter((i) => Number(i.agent_id) !== rfq?.requester_id);
   const existing = await q('SELECT * FROM rfq_invites WHERE rfq_id=$1', [rfqId]);
   const keep = new Set(invites.map((i) => Number(i.agent_id)));
   for (const e of existing) if (!keep.has(e.agent_id) && e.status === 'pending') await q('DELETE FROM rfq_invites WHERE id=$1', [e.id]);
@@ -62,7 +65,11 @@ export async function setInvites(rfqId, invites) {
 }
 
 export async function loadRfq(id) {
-  const rfq = await one('SELECT r.*, c.name AS customer_name FROM rfqs r LEFT JOIN customers c ON c.id=r.customer_id WHERE r.id=$1', [id]);
+  const rfq = await one(
+    `SELECT r.*, p.company AS requester_name, p.email AS requester_email, p.contact AS requester_contact, p.country AS requester_country
+     FROM rfqs r LEFT JOIN agents p ON p.id=r.requester_id WHERE r.id=$1`,
+    [id]
+  );
   if (!rfq) return null;
   const invites = await q(
     `SELECT i.*, a.company AS agent_company, a.contact AS agent_contact, a.email AS agent_email, a.country AS agent_country
@@ -83,7 +90,8 @@ export async function loadRfq(id) {
     [id]
   );
   const customerQuotes = await q('SELECT * FROM customer_quotes WHERE rfq_id=$1 ORDER BY id DESC', [id]);
-  return { rfq, invites, quotes, emails, customerQuotes };
+  const sourceEmail = rfq.source_email_id ? emails.find((e) => e.id === rfq.source_email_id) || null : null;
+  return { rfq, invites, quotes, emails, customerQuotes, sourceEmail };
 }
 
 export async function compareRfq(id, currency) {
@@ -170,6 +178,18 @@ export async function autoRemind() {
   return due.length;
 }
 
+/** Our own buy rates as a pseudo-agent, so they appear in the comparison like any other quote. */
+export async function ownRatesInvite(rfqId) {
+  let party = await one("SELECT * FROM agents WHERE source='internal' LIMIT 1");
+  if (!party) party = await one("INSERT INTO agents(company, is_agent, is_customer, source, active, notes) VALUES('Our own rates', false, false, 'internal', true, 'System entry for your own buy rates') RETURNING *");
+  const rfq = await one('SELECT legs FROM rfqs WHERE id=$1', [rfqId]);
+  const ex = await one('SELECT * FROM rfq_invites WHERE rfq_id=$1 AND agent_id=$2', [rfqId, party.id]);
+  if (ex) return ex;
+  return one("INSERT INTO rfq_invites(rfq_id,agent_id,tag,legs,status,replied_at) VALUES($1,$2,$3,$4,'replied',now()) RETURNING *", [rfqId, party.id, randomTag(), rfq.legs]);
+}
+
+const isInternal = async (inviteId) => !!(await one("SELECT 1 FROM rfq_invites i JOIN agents a ON a.id=i.agent_id WHERE i.id=$1 AND a.source='internal'", [inviteId]));
+
 /**
  * Award: confirm winning agent(s) per leg and send regret mails to the rest.
  * selection: { [leg]: agentQuoteId }
@@ -184,6 +204,11 @@ export async function awardRfq(rfqId, selection, { sendRegrets = true, note } = 
   }
   const results = [];
   for (const [inviteId, legs] of Object.entries(legsByInvite)) {
+    if (await isInternal(Number(inviteId))) {
+      await q("UPDATE rfq_invites SET awarded=true, status='awarded' WHERE id=$1", [inviteId]);
+      results.push({ invite_id: Number(inviteId), award: true, ok: true, internal: true });
+      continue;
+    }
     try {
       const c = await ctx(Number(inviteId));
       await sendMail(c.mb, { to: toList(c.agent), cc: ccList(c.agent), ...awardEmail({ ...c, legs, note }), inReplyTo: c.threadRef, references: c.rootRef ? [c.rootRef] : undefined }, { kind: 'award', rfq_id: rfqId, invite_id: c.invite.id });
@@ -197,6 +222,7 @@ export async function awardRfq(rfqId, selection, { sendRegrets = true, note } = 
     const losers = await q("SELECT id FROM rfq_invites WHERE rfq_id=$1 AND NOT awarded AND status IN ('replied','reminded','sent')", [rfqId]);
     for (const l of losers) {
       if (legsByInvite[l.id]) continue;
+      if (await isInternal(l.id)) continue;
       try {
         const c = await ctx(l.id);
         if (c.invite.status === 'replied') await sendMail(c.mb, { to: toList(c.agent), ...regretEmail(c), inReplyTo: c.threadRef }, { kind: 'regret', rfq_id: rfqId, invite_id: l.id });

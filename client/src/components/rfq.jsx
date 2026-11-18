@@ -40,16 +40,28 @@ export function LegPicker({ value = [], onChange }) {
 }
 
 /** Shipment details form, used for new and existing RFQs. */
-export function ShipmentForm({ value, onChange, customers = [], mailboxes = [] }) {
+export function ShipmentForm({ value, onChange, parties = [], mailboxes = [] }) {
   const meta = useMeta();
   const set = (k, v) => onChange({ ...value, [k]: v });
   const inp = (k, props = {}) => <Input {...props} value={value[k]} onChange={(e) => set(k, props.type === 'number' ? (e.target.value === '' ? '' : Number(e.target.value)) : e.target.value)} />;
   return (
     <div className="stack">
       <div className="grid g4">
-        <Field label="Customer">
-          <Select options={customers.map((c) => ({ value: c.id, label: c.name }))} value={value.customer_id} placeholder="— select —" onChange={(e) => set('customer_id', e.target.value ? Number(e.target.value) : '')} />
+        <Field label="Requested by">
+          <Select
+            options={parties.filter((p) => p.active !== false).map((p) => ({ value: p.id, label: `${p.company}${p.is_agent && !p.is_customer ? ' (partner agent)' : p.is_agent ? ' (customer + agent)' : ''}` }))}
+            value={value.requester_id}
+            placeholder="— select —"
+            onChange={(e) => {
+              const p = parties.find((x) => x.id === Number(e.target.value));
+              onChange({ ...value, requester_id: p ? p.id : '', requester_role: p ? (p.is_agent && !p.is_customer ? 'agent' : value.requester_role || 'customer') : value.requester_role });
+            }}
+          />
         </Field>
+        <Field label="Requester is">
+          <Select options={[{ value: 'customer', label: 'Our customer' }, { value: 'agent', label: 'A partner agent (for their customer)' }]} value={value.requester_role || 'customer'} onChange={(e) => set('requester_role', e.target.value)} />
+        </Field>
+        <Field label="Their reference">{inp('requester_ref', { placeholder: 'Their enquiry / job no.' })}</Field>
         <Field label="Mode"><Select options={meta.modes.map((m) => ({ value: m.code, label: m.name }))} value={value.mode} onChange={(e) => set('mode', e.target.value)} /></Field>
         <Field label="Incoterm"><Select options={meta.incoterms} placeholder="—" value={value.incoterm} onChange={(e) => set('incoterm', e.target.value)} /></Field>
         <Field label="Send from mailbox">
@@ -81,14 +93,14 @@ export function ShipmentForm({ value, onChange, customers = [], mailboxes = [] }
 /** Choose partner agents and which legs each should quote. invites: [{agent_id, legs}] */
 export function AgentPicker({ rfq, invites, onChange, locked = [] }) {
   const meta = useMeta();
-  const all = useLoad(() => api.get('/agents'));
+  const all = useLoad(() => api.get('/agents?role=agent'));
   const [sugg, setSugg] = useState([]);
   const [search, setSearch] = useState('');
   useEffect(() => {
-    const p = new URLSearchParams({ legs: (rfq.legs || []).join(','), pol: rfq.pol || '', pod: rfq.pod || '', pickup: rfq.pickup_place || '', delivery: rfq.delivery_place || '' });
+    const p = new URLSearchParams({ legs: (rfq.legs || []).join(','), pol: rfq.pol || '', pod: rfq.pod || '', pickup: rfq.pickup_place || '', delivery: rfq.delivery_place || '', exclude: rfq.requester_id || '' });
     api.get(`/agents/suggest?${p}`).then(setSugg).catch(() => setSugg([]));
-  }, [rfq.legs, rfq.pol, rfq.pod, rfq.pickup_place, rfq.delivery_place]);
-  const agents = (all.data || []).filter((a) => a.active);
+  }, [rfq.legs, rfq.pol, rfq.pod, rfq.pickup_place, rfq.delivery_place, rfq.requester_id]);
+  const agents = (all.data || []).filter((a) => a.active && a.is_agent && a.id !== rfq.requester_id);
   const chosen = new Map(invites.map((i) => [i.agent_id, i]));
   const add = (a, legs) => onChange([...invites, { agent_id: a.id, legs: legs?.length ? legs.filter((l) => rfq.legs.includes(l)) : rfq.legs }]);
   const remove = (aid) => onChange(invites.filter((i) => i.agent_id !== aid));

@@ -3,8 +3,8 @@ import { useState } from 'react';
 import { api } from '../api.js';
 import { PageHeader, Card, Table, Button, Modal, FormGrid, Input, Loading, ErrorBox, useLoad, useAction } from './ui.jsx';
 
-export default function CrudPage({ title, sub, endpoint, columns, fields, blank, extra, renderExtraFields, searchText }) {
-  const list = useLoad(() => api.get(endpoint), [endpoint]);
+export default function CrudPage({ title, sub, endpoint, listUrl, columns, fields, blank, extra, renderExtraFields, searchText }) {
+  const list = useLoad(() => api.get(listUrl || endpoint), [listUrl, endpoint]);
   const [edit, setEdit] = useState(null);
   const [search, setSearch] = useState('');
   const [busy, run] = useAction();

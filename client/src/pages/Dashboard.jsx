@@ -12,9 +12,10 @@ export default function Dashboard() {
   const rows = (list.data || []).filter((r) => !filter || r.status === filter);
   return (
     <>
-      <PageHeader title="RFQs" sub="Customer enquiries and the partner-agent quotes collected for them" actions={<Button onClick={() => nav('/rfqs/new')}>+ New RFQ</Button>} />
+      <PageHeader title="RFQs" sub="Enquiries from customers and partner agents, and the rates collected for them" actions={<Button onClick={() => nav('/rfqs/new')}>+ New RFQ</Button>} />
       {stats.data && (
         <div className="stats">
+          <Stat label="New enquiries by email" value={stats.data.new_enquiries} tone={stats.data.new_enquiries ? 'warn' : ''} />
           <Stat label="Open (waiting for agents)" value={stats.data.open} />
           <Stat label="Agent quotes to review" value={stats.data.needs_review} tone={stats.data.needs_review ? 'warn' : ''} />
           <Stat label="Quoted to customer" value={stats.data.quoted} />
@@ -22,7 +23,7 @@ export default function Dashboard() {
           <Stat label="Unmatched emails" value={stats.data.unmatched} tone={stats.data.unmatched ? 'warn' : ''} />
         </div>
       )}
-      <Card title="All RFQs" actions={<Select value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="All statuses" options={['draft', 'sent', 'quoting', 'quoted', 'awarded', 'closed']} />}>
+      <Card title="All RFQs" actions={<Select value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="All statuses" options={['new', 'draft', 'sent', 'quoting', 'quoted', 'awarded', 'closed']} />}>
         {list.loading ? <Loading /> : list.error ? <ErrorBox error={list.error} /> : (
           <Table
             rows={rows}
@@ -30,7 +31,7 @@ export default function Dashboard() {
             empty="No RFQs yet. Create one from a customer enquiry."
             columns={[
               { key: 'ref', label: 'Ref', render: (r) => <b>{r.ref}</b> },
-              { key: 'customer_name', label: 'Customer' },
+              { key: 'requester_name', label: 'Requested by', render: (r) => <>{r.requester_name || '—'} {r.requester_role === 'agent' && <Badge color="blue">agent</Badge>}</> },
               { key: 'mode', label: 'Mode' },
               { label: 'Route', render: routeOf },
               { label: 'Agents replied', render: (r) => `${r.replies}/${r.invites}`, align: 'center' },

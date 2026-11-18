@@ -18,6 +18,7 @@ export const DEFAULTS = {
   },
   pricing: {
     default_margin_pct: 10,
+    default_agent_margin_pct: 5,
     floor_margin_pct: 3,
     default_tax_pct: 18,
     quote_validity_days: 7,

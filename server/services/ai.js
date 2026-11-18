@@ -154,6 +154,7 @@ const ENQUIRY_TOOL = {
       ready_date: { type: 'string', description: 'YYYY-MM-DD' },
       legs: { type: 'array', items: { type: 'string', enum: LEG_CODES }, description: 'Which legs need pricing given the incoterm and door requirements' },
       notes: { type: 'string', description: 'Special requirements (hazardous, temperature, insurance, etc.)' },
+      requester_reference: { type: 'string', description: "The sender's own enquiry/job reference number, if any" },
     },
     required: ['mode', 'legs'],
   },
@@ -162,6 +163,30 @@ const ENQUIRY_TOOL = {
 export async function parseEnquiry(text) {
   const system = `You read customer shipping enquiries for a C&F (clearing & forwarding) agent in India or Hong Kong and extract structured shipment details. Infer which legs need pricing: e.g. export EXW with door pickup → pickup, export_customs, origin_charges, freight; DDP → all legs. Use today's year when a date has no year. Today: ${new Date().toISOString().slice(0, 10)}.`;
   return callTool({ system, content: [{ type: 'text', text: text.slice(0, 30000) }], tool: ENQUIRY_TOOL, maxTokens: 2000 });
+}
+
+const CLASSIFY_TOOL = {
+  name: 'classify_email',
+  description: 'Classify an email that arrived in the RFQ mailbox of a C&F / freight forwarding company.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      type: {
+        type: 'string',
+        enum: ['quote_reply', 'new_enquiry', 'other'],
+        description: 'quote_reply = the sender is giving us prices/answering our earlier rate request. new_enquiry = the sender is ASKING US for a rate/quotation for a shipment (for themselves or for their own customer). other = anything else (newsletters, invoices, bookings, spam, out-of-office).',
+      },
+      confidence: { type: 'number' },
+      reason: { type: 'string' },
+    },
+    required: ['type', 'confidence'],
+  },
+};
+
+export async function classifyEmail(email) {
+  const system = 'You triage incoming emails for a freight forwarder / C&F agent in India or Hong Kong. The company both asks partner agents for rates and receives rate requests from customers and partner agents. Decide what this email is.';
+  const content = [{ type: 'text', text: `From: ${email.from_addr}\nSubject: ${email.subject}\n\n${(email.body_text || '').slice(0, 15000)}` }];
+  return callTool({ system, content, tool: CLASSIFY_TOOL, maxTokens: 500 });
 }
 
 export { CURRENCIES };

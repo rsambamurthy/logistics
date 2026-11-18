@@ -38,7 +38,7 @@ const basisName = (b) => BASES.find((x) => x.code === b)?.name || b;
 
 export async function renderPdf(quoteId) {
   const quote = await one('SELECT * FROM customer_quotes WHERE id=$1', [quoteId]);
-  const rfq = await one('SELECT r.*, c.name AS customer_name, c.contact AS customer_contact FROM rfqs r LEFT JOIN customers c ON c.id=r.customer_id WHERE r.id=$1', [quote.rfq_id]);
+  const rfq = await one('SELECT r.*, p.company AS requester_name FROM rfqs r LEFT JOIN agents p ON p.id=r.requester_id WHERE r.id=$1', [quote.rfq_id]);
   const company = await getSetting('company');
   const s = quote.snapshot;
   const doc = new PDFDocument({ size: 'A4', margin: 40 });
@@ -53,7 +53,8 @@ export async function renderPdf(quoteId) {
   doc.fillColor(blue).fontSize(14).font('Helvetica-Bold').text('QUOTATION', { continued: true }).font('Helvetica').fontSize(10).fillColor('#444').text(`   ${quote.ref}`);
   doc.moveDown(0.4);
   const info = [
-    ['Customer', rfq.customer_name || '-'],
+    ['To', rfq.requester_name || '-'],
+    ...(rfq.requester_ref ? [['Your reference', rfq.requester_ref]] : []),
     ['Date', new Date(quote.created_at).toDateString()],
     ['Valid until', quote.valid_until ? new Date(quote.valid_until).toDateString() : '-'],
     ['Route', routeText(rfq, '  >  ')],
@@ -118,15 +119,22 @@ export async function renderPdf(quoteId) {
 export async function emailCustomerQuote(quoteId, { to, cc, subject, text }) {
   const quote = await one('SELECT * FROM customer_quotes WHERE id=$1', [quoteId]);
   const rfq = await one('SELECT * FROM rfqs WHERE id=$1', [quote.rfq_id]);
-  const customer = rfq.customer_id ? await one('SELECT * FROM customers WHERE id=$1', [rfq.customer_id]) : null;
+  const requester = rfq.requester_id ? await one('SELECT * FROM agents WHERE id=$1', [rfq.requester_id]) : null;
+  const source = rfq.source_email_id ? await one('SELECT message_id, subject FROM emails WHERE id=$1', [rfq.source_email_id]) : null;
   const mb = await getMailbox(rfq.mailbox_id);
   if (!mb) throw new Error('No mailbox configured');
-  const tpl = customerQuoteEmail({ rfq, customer, quote, mb });
-  const recipient = to || customer?.email;
-  if (!recipient) throw new Error('Customer email missing');
+  const tpl = customerQuoteEmail({ rfq, customer: requester && { name: requester.company, contact: requester.contact }, quote, mb });
+  const recipient = to || requester?.email;
+  if (!recipient) throw new Error('Requester email missing');
+  // answer inside the requester's own email thread when the enquiry came by email
+  const threadSubject = source?.subject ? `${/^re:/i.test(source.subject) ? '' : 'Re: '}${source.subject} — ${quote.ref}` : null;
   const pdf = await renderPdf(quoteId);
-  await sendMail(mb, { to: recipient, cc, subject: subject || tpl.subject, text: text || tpl.text, html: text ? undefined : tpl.html, attachments: [{ filename: `${quote.ref}.pdf`, content: pdf }] }, { kind: 'customer_quote', rfq_id: rfq.id });
+  await sendMail(
+    mb,
+    { to: recipient, cc, subject: subject || threadSubject || tpl.subject, text: text || tpl.text, html: text ? undefined : tpl.html, inReplyTo: source?.message_id || undefined, references: source?.message_id ? [source.message_id] : undefined, attachments: [{ filename: `${quote.ref}.pdf`, content: pdf }] },
+    { kind: 'customer_quote', rfq_id: rfq.id }
+  );
   await q("UPDATE customer_quotes SET status='sent', sent_at=now() WHERE id=$1", [quoteId]);
-  await q("UPDATE rfqs SET status=CASE WHEN status IN ('sent','quoting','draft') THEN 'quoted' ELSE status END WHERE id=$1", [rfq.id]);
+  await q("UPDATE rfqs SET status=CASE WHEN status IN ('new','sent','quoting','draft') THEN 'quoted' ELSE status END WHERE id=$1", [rfq.id]);
   return true;
 }

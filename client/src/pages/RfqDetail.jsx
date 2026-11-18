@@ -24,7 +24,7 @@ export default function RfqDetail() {
     <>
       <PageHeader
         title={<>{rfq.ref} <Badge>{rfq.status}</Badge></>}
-        sub={`${rfq.customer_name || 'No customer'} · ${rfq.mode} · ${routeOf(rfq)} · ${cargoOf(rfq) || ''}`}
+        sub={<>{rfq.requester_name ? <><b>{rfq.requester_name}</b> <Badge color={rfq.requester_role === 'agent' ? 'blue' : 'purple'}>{rfq.requester_role === 'agent' ? 'partner agent' : 'customer'}</Badge>{rfq.requester_ref ? ` ref ${rfq.requester_ref}` : ''}</> : 'No requester'} · {rfq.mode} · {routeOf(rfq)} · {cargoOf(rfq) || ''}</>}
       />
       <Tabs
         active={tab}
@@ -33,7 +33,7 @@ export default function RfqDetail() {
           { key: 'agents', label: 'Agents & emails', count: invites.length },
           { key: 'review', label: 'Agent quotes', count: toReview || null },
           { key: 'compare', label: 'Compare' },
-          { key: 'customer', label: 'Customer quote', count: customerQuotes.length || null },
+          { key: 'customer', label: rfq.requester_role === 'agent' ? 'Quote to agent' : 'Customer quote', count: customerQuotes.length || null },
           { key: 'shipment', label: 'Shipment details' },
         ]}
       />
@@ -57,8 +57,15 @@ function AgentsTab({ data, reload }) {
   const [adding, setAdding] = useState(false);
   const act = (key, fn, msg) => run(key, async () => { await fn(); await reload(); }, msg);
   const pending = invites.filter((i) => ['pending', 'failed'].includes(i.status)).length;
+  const requesterMails = emails.filter((e) => !e.invite_id && (e.kind === 'enquiry' || e.kind === 'requester_reply' || e.kind === 'customer_quote'));
   return (
     <>
+      {rfq.status === 'new' && <div className="alert alert-blue">New enquiry received by email. Check the shipment details, add partner agents to ask for rates, then email them. Or quote directly if you have your own rates.</div>}
+      {requesterMails.length > 0 && (
+        <Card title={`Correspondence with ${rfq.requester_name || 'requester'}`}>
+          <div className="stack">{requesterMails.map((e) => <EmailView key={e.id} email={e} />)}</div>
+        </Card>
+      )}
       <Card
         title="Partner agents"
         actions={<>
@@ -78,6 +85,7 @@ function AgentsTab({ data, reload }) {
             { label: 'Reminders', render: (i) => i.reminder_count || '', align: 'center' },
             {
               label: '', render: (i) => (
+                !i.agent_email ? <span className="muted small">your own rates</span> :
                 <div className="row gap-sm wrap">
                   <Button variant="ghost" small onClick={() => setOpen(i)}>Emails ({emails.filter((e) => e.invite_id === i.id).length})</Button>
                   {['pending', 'failed'].includes(i.status) && <Button small busy={busy === `s${i.id}`} onClick={() => act(`s${i.id}`, () => api.post(`/invites/${i.id}/send`), 'Sent')}>Send</Button>}
@@ -194,7 +202,10 @@ function ReviewTab({ data, reload }) {
           ]} />
         </Card>
       )}
-      <Card title="Agent quotes" actions={<Button small variant="ghost" onClick={() => setEdit({ invite_id: invites[0]?.id, lines: [], manual: true })} disabled={!invites.length}>+ Enter quote manually</Button>}>
+      <Card title="Agent quotes" actions={<>
+        <Button small variant="ghost" busy={busy === 'own'} onClick={() => run('own', async () => { const inv = await api.post(`/rfqs/${rfq.id}/own-rates`); await reload(); setEdit({ invite_id: inv.id, lines: [], manual: true }); })}>+ Our own rates</Button>
+        <Button small variant="ghost" onClick={() => setEdit({ invite_id: invites[0]?.id, lines: [], manual: true })} disabled={!invites.length}>+ Enter agent quote manually</Button>
+      </>}>
         {!current.length && <div className="empty">No quotes yet. Replies are read automatically when they arrive.</div>}
         <div className="stack">
           {current.map((q) => {
@@ -348,7 +359,8 @@ function CustomerTab({ data, selection, reload, goCompare }) {
   const meta = useMeta();
   const { rfq, customerQuotes } = data;
   const settings = useLoad(() => api.get('/settings'));
-  const customer = useLoad(() => (rfq.customer_id ? api.get('/customers').then((l) => l.find((c) => c.id === rfq.customer_id)) : null), [rfq.customer_id]);
+  const customer = useLoad(() => (rfq.requester_id ? api.get('/agents').then((l) => l.find((c) => c.id === rfq.requester_id)) : null), [rfq.requester_id]);
+  const isAgent = rfq.requester_role === 'agent';
   const [opts, setOpts] = useState(null);
   const [preview, setPreview] = useState(null);
   const [busy, run] = useAction();
@@ -357,7 +369,7 @@ function CustomerTab({ data, selection, reload, goCompare }) {
     if (!settings.data || opts || customer.loading) return;
     const p = settings.data.pricing;
     const cur = customer.data?.currency || settings.data.fx.base;
-    setOpts({ currency: cur, margin_pct: customer.data?.margin_pct ?? p.default_margin_pct, tax_pct: cur === 'INR' ? p.default_tax_pct : 0, terms: p.terms, valid_until: '' });
+    setOpts({ currency: cur, margin_pct: customer.data?.margin_pct ?? (isAgent ? p.default_agent_margin_pct : p.default_margin_pct), tax_pct: customer.data?.tax_pct ?? (cur === 'INR' ? p.default_tax_pct : 0), terms: p.terms, valid_until: '' });
   }, [settings.data, customer.data, customer.loading, opts]);
   const hasSel = Object.keys(selection).length > 0;
   const body = useMemo(() => (opts ? { ...opts, selection } : null), [opts, selection]);
@@ -375,7 +387,7 @@ function CustomerTab({ data, selection, reload, goCompare }) {
       {!hasSel ? (
         <Card><div className="empty">Pick agent quotes on the Compare tab first. <Button small variant="ghost" onClick={goCompare}>Go to Compare</Button></div></Card>
       ) : (
-        <Card title="Build customer quote">
+        <Card title={isAgent ? `Build quote for partner agent ${rfq.requester_name || ''}` : 'Build customer quote'}>
           <div className="grid g5">
             <Field label="Currency"><Select options={meta.currencies} value={opts.currency} onChange={(e) => setOpts({ ...opts, currency: e.target.value })} /></Field>
             <Field label="Margin %"><Input type="number" step="0.5" value={opts.margin_pct} onChange={(e) => setOpts({ ...opts, margin_pct: Number(e.target.value) })} /></Field>
@@ -410,7 +422,7 @@ function CustomerTab({ data, selection, reload, goCompare }) {
           )}
         </Card>
       )}
-      <Card title="Customer quotes">
+      <Card title={isAgent ? 'Quotes sent to the agent' : 'Customer quotes'}>
         <Table
           rows={customerQuotes}
           empty="None yet."
@@ -439,8 +451,9 @@ function CustomerTab({ data, selection, reload, goCompare }) {
         />
       </Card>
       {sendTo && (
-        <Modal title={`Email ${sendTo.quote.ref} to customer`} onClose={() => setSendTo(null)} footer={<Button busy={busy === 'send'} onClick={() => run('send', async () => { await api.post(`/customer-quotes/${sendTo.quote.id}/send`, { to: sendTo.to }); setSendTo(null); await reload(); }, 'Quote emailed')}>Send with PDF</Button>}>
+        <Modal title={`Email ${sendTo.quote.ref} to ${rfq.requester_name || 'requester'}`} onClose={() => setSendTo(null)} footer={<Button busy={busy === 'send'} onClick={() => run('send', async () => { await api.post(`/customer-quotes/${sendTo.quote.id}/send`, { to: sendTo.to }); setSendTo(null); await reload(); }, 'Quote emailed')}>Send with PDF</Button>}>
           <Field label="To"><Input value={sendTo.to} onChange={(e) => setSendTo({ ...sendTo, to: e.target.value })} /></Field>
+          {data.sourceEmail && <p className="muted small">Sent as a reply in their original email thread "{data.sourceEmail.subject}".</p>}
         </Modal>
       )}
     </>
@@ -449,7 +462,7 @@ function CustomerTab({ data, selection, reload, goCompare }) {
 
 // ---------------- Shipment ----------------
 function ShipmentTab({ data, reload }) {
-  const customers = useLoad(() => api.get('/customers'));
+  const parties = useLoad(() => api.get('/agents'));
   const mailboxes = useLoad(() => api.get('/mailboxes'));
   const toLocal = (d) => (d ? new Date(d).toISOString().slice(0, 16) : '');
   const [f, setF] = useState({ ...data.rfq, ready_date: data.rfq.ready_date?.slice?.(0, 10) || '', deadline: toLocal(data.rfq.deadline) });
@@ -457,11 +470,11 @@ function ShipmentTab({ data, reload }) {
   const save = () => run('x', async () => { await api.put(`/rfqs/${data.rfq.id}`, { ...f, deadline: f.deadline ? new Date(f.deadline).toISOString() : null }); await reload(); }, 'Saved');
   return (
     <Card title="Shipment details" actions={<>
-      <Select value={data.rfq.status} options={['draft', 'sent', 'quoting', 'quoted', 'awarded', 'closed', 'cancelled']} onChange={(e) => run('st', async () => { await api.post(`/rfqs/${data.rfq.id}/status`, { status: e.target.value }); await reload(); }, 'Status updated')} />
+      <Select value={data.rfq.status} options={['new', 'draft', 'sent', 'quoting', 'quoted', 'awarded', 'closed', 'cancelled']} onChange={(e) => run('st', async () => { await api.post(`/rfqs/${data.rfq.id}/status`, { status: e.target.value }); await reload(); }, 'Status updated')} />
       <Button busy={busy === 'x'} onClick={save}>Save</Button>
     </>}>
       <p className="muted small">Changes apply to future emails; already-sent RFQ emails are not changed.</p>
-      <ShipmentForm value={f} onChange={setF} customers={customers.data || []} mailboxes={mailboxes.data || []} />
+      <ShipmentForm value={f} onChange={setF} parties={parties.data || []} mailboxes={mailboxes.data || []} />
     </Card>
   );
 }

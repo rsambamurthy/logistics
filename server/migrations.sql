@@ -103,3 +103,11 @@ ALTER TABLE agents ADD COLUMN IF NOT EXISTS quote_language TEXT;
 -- 8. Rate memory: rate cards created automatically from checked agent quotes
 ALTER TABLE rate_cards ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'manual';
 ALTER TABLE rate_cards ADD COLUMN IF NOT EXISTS source_quote_id INT;
+
+-- 9. Email verification (existing users count as verified)
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema() AND table_name='users' AND column_name='email_verified_at') THEN
+    ALTER TABLE users ADD COLUMN email_verified_at TIMESTAMPTZ;
+    UPDATE users SET email_verified_at = now();
+  END IF;
+END $$;

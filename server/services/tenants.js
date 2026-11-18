@@ -2,6 +2,7 @@
 import bcrypt from 'bcryptjs';
 import { pq, pone, migrateTenant, runAsTenant, one, q } from '../db.js';
 import { setSetting } from './settings.js';
+import { sendVerification } from './accountTokens.js';
 
 const TRIAL_DAYS = Number(process.env.TRIAL_DAYS || 14);
 const GRACE_DAYS = 3;
@@ -71,6 +72,7 @@ export async function signUp({ company, name, email, password, country }) {
     return u;
   });
   await pq('INSERT INTO accounts(email,tenant_id,user_id) VALUES($1,$2,$3)', [mail, tenant.id, user.id]);
+  await sendVerification({ email: mail, tenantId: tenant.id, userId: user.id, name }).catch((e) => console.error('verification mail', e.message));
   return { tenant: full, user };
 }
 

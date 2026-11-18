@@ -8,6 +8,7 @@ import { MetaProvider } from './components/meta.jsx';
 import { SessionCtx } from './components/session.js';
 import { Brand } from './components/Brand.jsx';
 import Login from './pages/Login.jsx';
+import AccountLink from './pages/AccountLink.jsx';
 import Dashboard from './pages/Dashboard.jsx';
 import RfqNew from './pages/RfqNew.jsx';
 import RfqDetail from './pages/RfqDetail.jsx';
@@ -71,6 +72,7 @@ function App() {
     window.addEventListener('aq:session', load);
     return () => { window.removeEventListener('aq:logout', h); window.removeEventListener('aq:session', load); };
   }, []);
+  if (/^\/(verify|reset)$/.test(location.pathname)) return <AccountLink onDone={load} />;
   if (!session) return <Loading />;
   if (!session.user) return <Login onDone={load} />;
   const logout = async () => { await api.post('/logout'); setSession({}); };

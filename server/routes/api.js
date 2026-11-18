@@ -1,7 +1,7 @@
 import express from 'express';
 import multer from 'multer';
 import { q, one, runAsTenant } from '../db.js';
-import { requireAuth, requireAdmin, requireActiveSubscription, createUser, login, logout, issue, listUsers, decode } from '../auth.js';
+import { requireAuth, requireAdmin, requireActiveSubscription, createUser, resendInvite, login, logout, issue, listUsers, decode } from '../auth.js';
 import { LEGS, BASES, CHARGE_CODES, MODES, INCOTERMS, CURRENCIES, CONTAINER_TYPES, LEG_CODES } from '../engines/charges.js';
 import { getAllPublic, setSetting, saveAi } from '../services/settings.js';
 import { encrypt } from '../lib/crypto.js';
@@ -16,6 +16,8 @@ import { previewCustomerQuote, saveCustomerQuote, renderPdf, emailCustomerQuote,
 import { LANGUAGES } from '../services/i18n.js';
 import { reports } from '../services/reports.js';
 import { signUp, getTenant, accessState, usage, assertCanCreateRfq } from '../services/tenants.js';
+import { requestPasswordReset, resetPassword, verifyEmail, resendVerification, peekToken } from '../services/accountTokens.js';
+import { rateLimit } from '../lib/rateLimit.js';
 import billing from './billing.js';
 import platform from './platform.js';
 
@@ -33,12 +35,37 @@ r.get('/session', h(async (req, res) => {
   if (!decode(req)) return res.json({});
   requireAuth(req, res, () => res.json({ user: req.user, tenant: tenantView(req.tenant), access: req.access }));
 }));
-r.post('/signup', h(async (req, res) => {
-  const { tenant, user } = await signUp(req.body);
-  issue(res, user, tenant.id);
-  res.json({ user, tenant: tenantView(tenant), access: accessState(tenant) });
+const authLimit = rateLimit({ max: 10, key: (req) => `${req.ip}|${req.path}|${String(req.body?.email || req.body?.token || '').toLowerCase()}` });
+const mailLimit = rateLimit({ max: 5 });
+r.post('/signup', rateLimit({ max: 5, windowMs: 60 * 60 * 1000 }), h(async (req, res) => {
+  const { user } = await signUp(req.body);
+  res.json({ verify_sent: true, email: user.email });
 }));
-r.post('/login', h(async (req, res) => res.json({ user: await login(res, req.body.email, req.body.password) })));
+r.post('/login', authLimit, h(async (req, res) => {
+  try {
+    res.json({ user: await login(res, req.body.email, req.body.password) });
+  } catch (e) {
+    if (e.code === 'unverified') return res.status(403).json({ error: e.message, code: 'unverified' });
+    throw e;
+  }
+}));
+// account links (public)
+r.post('/auth/forgot', mailLimit, h(async (req, res) => { await requestPasswordReset(req.body.email); res.json({ ok: true }); }));
+r.get('/auth/check', h(async (req, res) => {
+  const p = await peekToken(req.query.token, req.query.purpose === 'verify' ? 'verify' : req.query.invite ? 'invite' : 'reset');
+  res.json({ ok: p.ok, reason: p.reason || null, email: p.ok ? p.token.email : null });
+}));
+r.post('/auth/reset', authLimit, h(async (req, res) => {
+  const { user, tenant } = await resetPassword(req.body.token, req.body.password);
+  issue(res, user, tenant.id);
+  res.json({ ok: true });
+}));
+r.post('/auth/verify', authLimit, h(async (req, res) => {
+  const { user, tenant } = await verifyEmail(req.body.token);
+  issue(res, user, tenant.id);
+  res.json({ ok: true });
+}));
+r.post('/auth/resend-verification', mailLimit, h(async (req, res) => { await resendVerification(req.body.email); res.json({ ok: true }); }));
 r.post('/logout', (req, res) => { logout(res); res.json({ ok: true }); });
 r.use('/billing/razorpay/webhook', billing.webhook);
 
@@ -58,6 +85,7 @@ r.get('/meta', (req, res) => res.json({ languages: LANGUAGES, roles: ['user', 'm
 // ---------- users ----------
 r.get('/users', requireAdmin, h(async (req, res) => res.json(await listUsers())));
 r.post('/users', requireAdmin, h(async (req, res) => res.json(await createUser(req.body))));
+r.post('/users/:id/resend-invite', requireAdmin, h(async (req, res) => { await resendInvite(id(req)); res.json({ ok: true }); }));
 
 // ---------- settings ----------
 r.get('/settings', h(async (req, res) => res.json(await getAllPublic())));

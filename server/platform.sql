@@ -49,3 +49,17 @@ CREATE TABLE IF NOT EXISTS billing_events (
   payload JSONB,
   created_at TIMESTAMPTZ DEFAULT now()
 );
+
+-- one-time links for password reset, email verification and user invites (only the hash is stored)
+CREATE TABLE IF NOT EXISTS auth_tokens (
+  id SERIAL PRIMARY KEY,
+  token_hash TEXT UNIQUE NOT NULL,
+  purpose TEXT NOT NULL,              -- reset | verify | invite
+  email TEXT NOT NULL,
+  tenant_id INT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  user_id INT NOT NULL,
+  expires_at TIMESTAMPTZ NOT NULL,
+  used_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS auth_tokens_email ON auth_tokens(email);

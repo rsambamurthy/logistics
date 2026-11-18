@@ -153,3 +153,4 @@ textarea.input { resize: vertical; }
 .bar > div { background: var(--red); height: 100%; border-radius: 4px; }
 .option-block { border: 1px solid var(--line); border-radius: 9px; padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; }
 .option-block h4 { margin: 0; }
+.right { text-align: right; }

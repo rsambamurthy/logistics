@@ -25,6 +25,9 @@ Quote sourcing and comparison for C&F agents. Send one RFQ to many partner agent
 | `PLATFORM_ADMIN_EMAILS` | Comma-separated emails that see the Integrata admin console (tenants, plans) |
 | `TRIAL_DAYS` | Free trial length for new sign-ups (default 14) |
 | `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET` | Razorpay API keys for subscriptions |
+| `RESEND_API_KEY` | Resend key for account emails (verification, password reset, invites) |
+| `SYSTEM_MAIL_FROM` | Sender for account emails (default `Quayly <no-reply@integratatech.ai>`) |
+| `APP_URL` | Public address used in emailed links (default `https://quayly.integratatech.ai`) |
 | `RAZORPAY_WEBHOOK_SECRET` | Secret of the Razorpay webhook pointing to `/api/billing/razorpay/webhook` |
 
 ## Multi-tenancy

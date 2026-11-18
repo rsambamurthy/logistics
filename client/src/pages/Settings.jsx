@@ -251,10 +251,22 @@ function Users({ admin }) {
   const [busy, run] = useAction();
   return (
     <Card title="Users" actions={admin && <Button onClick={() => setF({ role: 'user' })}>+ Add user</Button>}>
-      <Table rows={list.data} columns={[{ key: 'name', label: 'Name' }, { key: 'email', label: 'Email' }, { key: 'role', label: 'Role' }]} />
+      <Table rows={list.data} columns={[
+        { key: 'name', label: 'Name' },
+        { key: 'email', label: 'Email' },
+        { key: 'role', label: 'Role' },
+        { label: 'Status', render: (u) => (u.email_verified_at ? <Badge color="green">active</Badge> : <Badge color="amber">invited</Badge>) },
+        { label: '', render: (u) => (admin && !u.email_verified_at ? <Button small variant="ghost" busy={busy === `i${u.id}`} onClick={() => run(`i${u.id}`, () => api.post(`/users/${u.id}/resend-invite`), 'Invite sent again')}>Resend invite</Button> : null) },
+      ]} />
       {f && (
-        <Modal title="Add user" onClose={() => setF(null)} footer={<Button busy={busy} onClick={() => run('x', async () => { await api.post('/users', f); setF(null); list.reload(); }, 'User added')}>Add</Button>}>
-          <FormGrid cols={2} value={f} onChange={setF} fields={[{ key: 'name', label: 'Name' }, { key: 'email', label: 'Email', type: 'email' }, { key: 'password', label: 'Temporary password', type: 'password' }, { key: 'role', label: 'Role', type: 'select', options: [{ value: 'user', label: 'User' }, { value: 'manager', label: 'Manager (approves low-margin quotes)' }, { value: 'admin', label: 'Admin (everything incl. settings)' }] }]} />
+        <Modal title="Add user" onClose={() => setF(null)} footer={<Button busy={busy === 'add'} onClick={() => run('add', async () => {
+          const u = await api.post('/users', f);
+          setF(null);
+          list.reload();
+          if (u.invite_error) throw new Error(`User added, but the invite email failed: ${u.invite_error}`);
+        }, 'User added. They will get an email to set their password.')}>Add & send invite</Button>}>
+          <FormGrid cols={2} value={f} onChange={setF} fields={[{ key: 'name', label: 'Name' }, { key: 'email', label: 'Email', type: 'email' }, { key: 'role', label: 'Role', type: 'select', options: [{ value: 'user', label: 'User' }, { value: 'manager', label: 'Manager (approves low-margin quotes)' }, { value: 'admin', label: 'Admin (everything incl. settings)' }] }]} />
+          <p className="muted small">They receive an email from Quayly with a link to choose their own password.</p>
         </Modal>
       )}
     </Card>

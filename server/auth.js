@@ -2,7 +2,9 @@
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
 import { one, q, pq, runAsTenant, currentTenant } from './db.js';
+import crypto from 'node:crypto';
 import { getTenant, tenantForEmail, accessState, assertCanAddUser } from './services/tenants.js';
+import { sendInvite } from './services/accountTokens.js';
 
 const SECRET = () => process.env.APP_SECRET || 'dev-only-secret-change-me';
 const COOKIE = 'aq_session';
@@ -27,6 +29,7 @@ export async function login(res, email, password) {
   if (tenant.status === 'suspended') throw err('This account is suspended. Contact Integrata support.', 403);
   const u = await runAsTenant(tenant, () => one('SELECT * FROM users WHERE email=lower($1)', [email]));
   if (!u || !(await bcrypt.compare(password || '', u.password_hash))) throw err('Invalid email or password', 401);
+  if (!u.email_verified_at) throw Object.assign(err('Please confirm your email first. Use the link we emailed you.', 403), { code: 'unverified' });
   issue(res, u, tenant.id);
   return { id: u.id, email: u.email, name: u.name, role: u.role };
 }
@@ -80,20 +83,32 @@ export function requireActiveSubscription(req, res, next) {
   res.status(402).json({ error: req.access?.message || 'Subscription required', code: req.access?.state });
 }
 
-export async function createUser({ email, name, password, role = 'user' }) {
+/** Add a user to the current tenant. They get an invite email to set their own password. */
+export async function createUser({ email, name, role = 'user' }) {
   const t = currentTenant();
   const mail = String(email || '').toLowerCase().trim();
-  if (!mail || !password || password.length < 8) throw err('Email and a password of at least 8 characters are required', 400);
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(mail)) throw err('Enter a valid email address', 400);
   if ((await pq('SELECT 1 FROM accounts WHERE email=$1', [mail])).length) throw err('This email is already used by another account', 400);
+  if (!['user', 'manager', 'admin'].includes(role)) throw err('Unknown role', 400);
   await assertCanAddUser(t);
-  const hash = await bcrypt.hash(password, 10);
-  const u = await one('INSERT INTO users(email,name,password_hash,role) VALUES($1,$2,$3,$4) RETURNING id,email,name,role', [mail, name || mail, hash, role]);
+  const placeholder = await bcrypt.hash(crypto.randomBytes(24).toString('hex'), 10); // unusable until they set a password
+  const u = await one('INSERT INTO users(email,name,password_hash,role) VALUES($1,$2,$3,$4) RETURNING id,email,name,role', [mail, name || mail, placeholder, role]);
   await pq('INSERT INTO accounts(email,tenant_id,user_id) VALUES($1,$2,$3)', [mail, t.id, u.id]);
-  return u;
+  const invite = await sendInvite({ email: mail, tenantId: t.id, userId: u.id, name, company: t.name }).catch((e) => ({ error: e.message }));
+  return { ...u, invite_sent: !invite?.error && !invite?.skipped, invite_error: invite?.error || null };
+}
+
+export async function resendInvite(userId) {
+  const t = currentTenant();
+  const u = await one('SELECT id,email,name,email_verified_at FROM users WHERE id=$1', [userId]);
+  if (!u) throw err('User not found', 404);
+  if (u.email_verified_at) throw err('This user has already set a password', 400);
+  await sendInvite({ email: u.email, tenantId: t.id, userId: u.id, name: u.name, company: t.name });
+  return true;
 }
 
 export async function listUsers() {
-  return q('SELECT id,email,name,role,created_at FROM users ORDER BY id');
+  return q('SELECT id,email,name,role,created_at,email_verified_at FROM users ORDER BY id');
 }
 
 export { decode };

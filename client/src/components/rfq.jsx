@@ -161,7 +161,14 @@ export function ChargeLinesTable({ lines, onChange, legs, opts = {}, newLine }) 
   const setLine = (i, k, v) => onChange(lines.map((l, j) => (j === i ? { ...l, [k]: v, ...(k !== 'confidence' ? { confidence: 1 } : {}) } : l)));
   const onCode = (i, code) => {
     const c = meta.charges.find((x) => x.code === code);
-    onChange(lines.map((l, j) => (j === i ? { ...l, charge_code: code, confidence: 1, description: l.description || c?.name, basis: l.basis || c?.basis } : l)));
+    onChange(lines.map((l, j) => {
+      if (j !== i) return l;
+      // replace text/basis that were auto-filled from the previous charge; keep anything the user typed
+      const prev = meta.charges.find((x) => x.code === l.charge_code);
+      const autoDesc = !l.description || l.description === prev?.name;
+      const autoBasis = !l.basis || l.basis === prev?.basis;
+      return { ...l, charge_code: code, confidence: 1, description: autoDesc ? c?.name : l.description, basis: autoBasis ? c?.basis : l.basis };
+    }));
   };
   const numIn = (i, k, w = 80, ph) => <Input type="number" step="0.01" style={{ width: w, textAlign: 'right' }} placeholder={ph} value={lines[i][k]} onChange={(e) => setLine(i, k, e.target.value === '' ? '' : Number(e.target.value))} />;
   const low = (l) => l.confidence !== undefined && l.confidence !== null && l.confidence < 0.75;

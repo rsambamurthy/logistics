@@ -230,6 +230,8 @@ function PricingSettings({ data, onSaved }) {
         { key: 'quote_validity_days', label: 'Customer quote validity (days)', type: 'number' },
         { key: 'auto_followup', label: 'Follow-up', type: 'checkbox', checkLabel: 'Email the requester before a quote expires' },
         { key: 'followup_days_before_expiry', label: 'Days before expiry to follow up', type: 'number' },
+        { key: 'rate_memory', label: 'Rate memory', type: 'checkbox', checkLabel: 'Save checked agent quotes as rate cards' },
+        { key: 'rate_memory_days', label: 'Remembered rates valid for (days, if agent gave no validity)', type: 'number' },
         { key: 'terms', label: 'Default terms on quotations', type: 'textarea', span: 5, rows: 4 },
       ]} />
       <h4>Exchange rates</h4>

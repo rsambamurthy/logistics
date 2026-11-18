@@ -21,9 +21,11 @@ export async function nextRef(prefix = 'RFQ') {
 export async function createRfq(dataIn, userId) {
   const data = { ...dataIn, requester_role: dataIn.requester_role || 'customer' };
   const ref = await nextRef();
-  const vals = RFQ_FIELDS.map((f) => (f === 'containers' ? JSON.stringify(data.containers || []) : clean(data[f])));
+  // only fields that were given, so column defaults apply to the rest
+  const fields = RFQ_FIELDS.filter((f) => data[f] !== undefined && !(data[f] === null && ['dangerous_goods', 'requester_role'].includes(f)));
+  const vals = fields.map((f) => (f === 'containers' ? JSON.stringify(data.containers || []) : clean(data[f])));
   const rfq = await one(
-    `INSERT INTO rfqs(ref,${RFQ_FIELDS.join(',')},created_by) VALUES($1,${RFQ_FIELDS.map((_, i) => `$${i + 2}`).join(',')},$${RFQ_FIELDS.length + 2}) RETURNING *`,
+    `INSERT INTO rfqs(ref,${fields.join(',')},created_by) VALUES($1,${fields.map((_, i) => `$${i + 2}`).join(',')},$${fields.length + 2}) RETURNING *`,
     [ref, ...vals, userId || null]
   );
   if (data.invites?.length) await setInvites(rfq.id, data.invites);

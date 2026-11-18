@@ -9,8 +9,9 @@ import { getMailbox, testSmtp, testImap, pollMailbox, canReceive } from '../serv
 import { createRfq, updateRfq, duplicateRfq, loadRfq, ownRatesInvite, sendRfq, sendInvite, remindInvite, counterInvite, compareRfq, awardRfq } from '../services/rfq.js';
 import { ingestManual, parseEmail, assignEmail, saveQuote } from '../services/replies.js';
 import { createRfqFromEmail } from '../services/intake.js';
-import { listCards, getCard, saveCard, copyCard, deleteCard, applyRateCards, templateWorkbook, importRateCards, expiringCount } from '../services/rateCards.js';
-import { parseEnquiry } from '../services/ai.js';
+import { listCards, getCard, saveCard, copyCard, deleteCard, applyRateCards, templateWorkbook, importRateCards, expiringCount, rememberQuote, saveCards } from '../services/rateCards.js';
+import { attachmentBlocks } from '../services/extract.js';
+import { parseEnquiry, readRateSheet } from '../services/ai.js';
 import { previewCustomerQuote, saveCustomerQuote, renderPdf, emailCustomerQuote, followUpQuote, markLost, LOST_REASONS, decideApproval, acceptQuote, rfqFamily } from '../services/customerQuote.js';
 import { LANGUAGES } from '../services/i18n.js';
 import { reports } from '../services/reports.js';
@@ -204,6 +205,14 @@ r.post('/rate-cards/import', upload.single('file'), h(async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'Choose an Excel or CSV file' });
   res.json(await importRateCards(req.file.buffer));
 }));
+r.post('/rate-cards/ai-read', upload.single('file'), h(async (req, res) => {
+  const blocks = req.file ? attachmentBlocks({ filename: req.file.originalname, content_type: req.file.mimetype, data: req.file.buffer }) : [];
+  if (req.body.text) blocks.push({ type: 'text', text: String(req.body.text).slice(0, 60000) });
+  if (!blocks.length) return res.status(400).json({ error: 'Upload a rate sheet or paste its text' });
+  res.json(await readRateSheet({ blocks, hint: req.body.hint }));
+}));
+r.post('/rate-cards/bulk', h(async (req, res) => res.json(await saveCards(req.body.cards || [], req.body.vendor_id || null))));
+r.post('/agent-quotes/:id/remember', h(async (req, res) => res.json({ cards: await rememberQuote(id(req)) })));
 r.get('/rate-cards/:id', h(async (req, res) => res.json(await getCard(id(req)))));
 r.post('/rate-cards', h(async (req, res) => res.json(await saveCard(req.body))));
 r.put('/rate-cards/:id', h(async (req, res) => res.json(await saveCard({ ...req.body, id: id(req) }))));
@@ -245,6 +254,7 @@ function validLines(lines) {
 r.post('/agent-quotes', h(async (req, res) => {
   const inv = await one('SELECT * FROM rfq_invites WHERE id=$1', [req.body.invite_id]);
   const qrow = await saveQuote({ ...req.body, rfq_id: inv.rfq_id, invite_id: inv.id, lines: validLines(req.body.lines), verified: true, source: 'manual' });
+  await rememberQuote(qrow.id).catch((e) => console.error('rate memory', e.message));
   await q("UPDATE rfq_invites SET status=CASE WHEN status IN ('pending','sent','reminded') THEN 'replied' ELSE status END, replied_at=coalesce(replied_at,now()) WHERE id=$1", [inv.id]);
   res.json(qrow);
 }));
@@ -260,6 +270,7 @@ r.put('/agent-quotes/:id', h(async (req, res) => {
         [qid, l.leg, l.charge_code, l.description || null, l.basis, Number(l.rate) || 0, (l.currency || 'USD').toUpperCase(), l.qty === '' || l.qty === undefined ? null : l.qty, b.verified !== false ? 1 : l.confidence ?? null, l.sort]);
     }
   }
+  if (b.verified !== false) await rememberQuote(qid).catch((e) => console.error('rate memory', e.message));
   res.json({ ok: true });
 }));
 

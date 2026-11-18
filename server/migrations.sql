@@ -99,3 +99,7 @@ ALTER TABLE rfqs ADD COLUMN IF NOT EXISTS cargo_value NUMERIC;
 ALTER TABLE rfqs ADD COLUMN IF NOT EXISTS cargo_value_currency TEXT;
 ALTER TABLE rfqs ADD COLUMN IF NOT EXISTS stackable BOOLEAN;
 ALTER TABLE agents ADD COLUMN IF NOT EXISTS quote_language TEXT;
+
+-- 8. Rate memory: rate cards created automatically from checked agent quotes
+ALTER TABLE rate_cards ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'manual';
+ALTER TABLE rate_cards ADD COLUMN IF NOT EXISTS source_quote_id INT;

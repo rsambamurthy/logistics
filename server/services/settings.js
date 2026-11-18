@@ -23,6 +23,8 @@ export const DEFAULTS = {
     default_tax_pct: 18,
     quote_validity_days: 7,
     auto_followup: true,
+    rate_memory: true,
+    rate_memory_days: 14,
     followup_days_before_expiry: 2,
     terms: 'Rates subject to space and equipment availability at time of booking.\nCharges not mentioned are payable at actuals.\nValidity as stated; surcharges as per carrier at time of shipment.',
   },

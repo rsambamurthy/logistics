@@ -195,4 +195,97 @@ export async function classifyEmail(email) {
   return callTool({ system, content, tool: CLASSIFY_TOOL, maxTokens: 500 });
 }
 
+const RATESHEET_TOOL = {
+  name: 'record_rate_cards',
+  description: 'Record the buy rates found in a carrier / agent / transporter rate sheet as rate cards.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      cards: {
+        type: 'array',
+        description: 'One card per leg + lane + mode (+ carrier). Put container types as separate lines of the same card.',
+        items: {
+          type: 'object',
+          properties: {
+            name: { type: 'string', description: 'Short name, e.g. "ONE MAA-HKG Dec 2026"' },
+            leg: { type: 'string', enum: LEG_CODES },
+            mode: { type: 'string', enum: ['FCL', 'LCL', 'AIR', 'ANY'] },
+            origin: { type: 'string', description: 'Port/airport/place names and codes, comma separated, e.g. "Chennai, INMAA"' },
+            destination: { type: 'string' },
+            carrier: { type: 'string' },
+            valid_from: { type: 'string', description: 'YYYY-MM-DD' },
+            valid_to: { type: 'string', description: 'YYYY-MM-DD' },
+            transit_days: { type: 'integer' },
+            free_days: { type: 'integer' },
+            lines: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  charge_code: { type: 'string', enum: CHARGE_CODES.map((c) => c.code) },
+                  description: { type: 'string' },
+                  basis: { type: 'string', enum: BASIS_CODES },
+                  equipment: { type: 'string', enum: CONTAINER_TYPES, description: 'Container type for FCL rates; omit if the charge applies to all containers' },
+                  rate: { type: 'number' },
+                  currency: { type: 'string' },
+                  qty_from: { type: 'number', description: 'Weight/volume break start (kg or cbm)' },
+                  qty_to: { type: 'number' },
+                  min_amount: { type: 'number', description: 'Minimum charge' },
+                },
+                required: ['charge_code', 'basis', 'rate', 'currency'],
+              },
+            },
+          },
+          required: ['name', 'leg', 'lines'],
+        },
+      },
+      notes: { type: 'string', description: 'Conditions or anything that could not be captured' },
+    },
+    required: ['cards'],
+  },
+};
+
+/** Read a carrier / agent rate sheet (any layout: PDF, Excel, image, email text) into rate cards. */
+export async function readRateSheet({ blocks, hint }) {
+  const system = `You convert freight rate sheets into structured buy-rate cards for a C&F agent in India / Hong Kong.
+- Each card = one leg (pickup, export_customs, origin_charges, freight, destination_charges, import_customs, delivery) for one lane and mode.
+- Ocean rates per container type go as separate lines with equipment set (20GP, 40GP, 40HC...). Surcharges that apply to every container have no equipment.
+- Air rates with weight breaks: one line per break with qty_from/qty_to in kg and basis per_kg; minimum charge in min_amount.
+- Local charges (THC, documentation, BL fee, seal) belong to origin_charges or destination_charges.
+- Use the sheet's validity dates. Do not invent rates. Use charge code OTHER when nothing fits.
+Standard charge codes:
+${chargeList}
+Today: ${new Date().toISOString().slice(0, 10)}`;
+  const content = [{ type: 'text', text: `Rate sheet${hint ? ` (${hint})` : ''}:` }, ...blocks];
+  const out = await callTool({ system, content, tool: RATESHEET_TOOL, maxTokens: 16000 });
+  const valid = (d) => (/^\d{4}-\d{2}-\d{2}$/.test(d || '') ? d : null);
+  return {
+    notes: out.notes || null,
+    cards: (out.cards || []).map((c) => ({
+      name: c.name,
+      leg: LEG_CODES.includes(c.leg) ? c.leg : 'freight',
+      mode: ['FCL', 'LCL', 'AIR'].includes(c.mode) ? c.mode : null,
+      origin: c.origin || null,
+      destination: c.destination || null,
+      carrier: c.carrier || null,
+      valid_from: valid(c.valid_from),
+      valid_to: valid(c.valid_to),
+      transit_days: Number.isInteger(c.transit_days) ? c.transit_days : null,
+      free_days: Number.isInteger(c.free_days) ? c.free_days : null,
+      active: true,
+      lines: (c.lines || []).map((l) => ({
+        charge_code: CHARGE_CODES.some((x) => x.code === l.charge_code) ? l.charge_code : normaliseCharge(l.description),
+        description: l.description || null,
+        basis: BASIS_CODES.includes(l.basis) ? l.basis : normaliseBasis(l.basis),
+        equipment: CONTAINER_TYPES.includes(l.equipment) ? l.equipment : null,
+        rate: Number(l.rate) || 0,
+        currency: String(l.currency || 'USD').toUpperCase().slice(0, 3),
+        qty_from: l.qty_from ?? null,
+        qty_to: l.qty_to ?? null,
+        min_amount: l.min_amount ?? null,
+      })),
+    })).filter((c) => c.lines.length),
+  };
+}
+
 export { CURRENCIES };

@@ -1,16 +1,16 @@
 // Rate cards: stored buy rates (own or a vendor's) that can price an RFQ without emailing anyone.
 import * as XLSX from 'xlsx';
 import { q, one, tx } from '../db.js';
-import { priceFromCards } from '../engines/ratecards.js';
+import { priceFromCards, legPlaces } from '../engines/ratecards.js';
 import { LEG_CODES, BASIS_CODES, CHARGE_CODES, normaliseCharge, normaliseBasis, legName, MODES } from '../engines/charges.js';
-import { getFx } from './settings.js';
+import { getFx, getSetting } from './settings.js';
 import { saveQuote } from './replies.js';
 import { systemInvite, ownParty } from './rfq.js';
 
-const CARD_FIELDS = ['name', 'vendor_id', 'leg', 'mode', 'origin', 'destination', 'carrier', 'valid_from', 'valid_to', 'transit_days', 'free_days', 'notes', 'active'];
+const CARD_FIELDS = ['name', 'vendor_id', 'leg', 'mode', 'origin', 'destination', 'carrier', 'valid_from', 'valid_to', 'transit_days', 'free_days', 'notes', 'active', 'source', 'source_quote_id'];
 const blank = (v) => (v === '' || v === undefined ? null : v);
 
-export async function listCards({ leg, vendor, status } = {}) {
+export async function listCards({ leg, vendor, status, source } = {}) {
   const where = [];
   const vals = [];
   if (leg) { vals.push(leg); where.push(`c.leg=$${vals.length}`); }
@@ -19,6 +19,7 @@ export async function listCards({ leg, vendor, status } = {}) {
   if (status === 'active') where.push('c.active AND (c.valid_to IS NULL OR c.valid_to >= current_date)');
   if (status === 'expiring') where.push("c.active AND c.valid_to BETWEEN current_date AND current_date + 7");
   if (status === 'expired') where.push('c.valid_to < current_date');
+  if (source) { vals.push(source); where.push(`c.source=$${vals.length}`); }
   return q(
     `SELECT c.*, a.company AS vendor_name, (SELECT count(*)::int FROM rate_card_lines l WHERE l.rate_card_id=c.id) AS line_count
      FROM rate_cards c LEFT JOIN agents a ON a.id=c.vendor_id ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
@@ -46,7 +47,7 @@ function validate(card) {
 export async function saveCard(data, t) {
   validate(data);
   const run = async (db) => {
-    const vals = CARD_FIELDS.map((f) => (f === 'active' ? data.active !== false : blank(data[f])));
+    const vals = CARD_FIELDS.map((f) => (f === 'active' ? data.active !== false : f === 'source' ? data.source || 'manual' : blank(data[f])));
     let card;
     if (data.id) {
       card = await db.one(`UPDATE rate_cards SET ${CARD_FIELDS.map((f, i) => `${f}=$${i + 1}`).join(',')}, updated_at=now() WHERE id=$${CARD_FIELDS.length + 1} RETURNING *`, [...vals, data.id]);
@@ -240,4 +241,72 @@ export async function importRateCards(buffer) {
     }
   });
   return { created, replaced, lines: [...groups.values()].reduce((s, g) => s + g.lines.length, 0), errors };
+}
+
+// ---------------- rate memory ----------------
+/**
+ * Remember a checked agent quote as rate cards (one per leg), so the next similar RFQ is priced instantly.
+ * A newer quote from the same agent for the same leg, lane and mode replaces the older memory card.
+ */
+export async function rememberQuote(agentQuoteId) {
+  const pricing = await getSetting('pricing');
+  if (pricing.rate_memory === false) return [];
+  const aq = await one('SELECT * FROM agent_quotes WHERE id=$1', [agentQuoteId]);
+  if (!aq || aq.declined || !aq.verified) return [];
+  const inv = await one("SELECT i.*, a.company FROM rfq_invites i JOIN agents a ON a.id=i.agent_id WHERE i.id=$1 AND i.source='email'", [aq.invite_id]);
+  if (!inv) return []; // only quotes that came from agents (not our own or rate-card prices)
+  const rfq = await one('SELECT * FROM rfqs WHERE id=$1', [aq.rfq_id]);
+  const lines = await q('SELECT * FROM quote_lines WHERE agent_quote_id=$1 ORDER BY sort, id', [aq.id]);
+  const types = [...new Set((rfq.containers || []).map((c) => c.type))];
+  const singleType = rfq.mode === 'FCL' && types.length === 1 ? types[0] : null;
+  const days = Number(pricing.rate_memory_days || 14);
+  const validTo = aq.valid_until || new Date(Date.now() + days * 864e5).toISOString().slice(0, 10);
+  const saved = [];
+  for (const leg of [...new Set(lines.map((l) => l.leg))]) {
+    const [from, to] = legPlaces(leg, rfq);
+    if (!from) continue;
+    const name = `${inv.company} · ${leg} · ${[from, to].filter(Boolean).join(' → ')} (${rfq.mode})`;
+    const ex = await one("SELECT id FROM rate_cards WHERE name=$1 AND vendor_id=$2 AND source='memory'", [name, inv.agent_id]);
+    const card = await saveCard({
+      id: ex?.id,
+      name,
+      vendor_id: inv.agent_id,
+      leg,
+      mode: rfq.mode,
+      origin: from,
+      destination: to,
+      carrier: aq.carrier,
+      valid_from: new Date().toISOString().slice(0, 10),
+      valid_to: validTo,
+      transit_days: leg === 'freight' ? aq.transit_days : null,
+      free_days: leg === 'freight' ? aq.free_days : null,
+      notes: `Remembered from ${rfq.ref}${aq.exclusions ? `. Excludes: ${aq.exclusions}` : ''}`,
+      active: true,
+      source: 'memory',
+      source_quote_id: aq.id,
+      lines: lines.filter((l) => l.leg === leg && !(l.qty !== null && l.qty !== undefined)).map((l) => ({
+        charge_code: l.charge_code,
+        description: l.description,
+        basis: l.basis,
+        rate: l.rate,
+        currency: l.currency,
+        // per-container FCL rates from a single-type shipment are kept for that container type only
+        equipment: singleType && ['per_container', 'per_trip'].includes(l.basis) ? singleType : null,
+      })),
+    });
+    saved.push(card.id);
+  }
+  return saved;
+}
+
+/** Save several cards at once (e.g. after AI read a rate sheet). */
+export async function saveCards(cards, vendorId) {
+  let n = 0;
+  await tx(async (t) => {
+    for (const c of cards) {
+      await saveCard({ ...c, id: undefined, vendor_id: vendorId || null, source: c.source || 'ai_import' }, t);
+      n++;
+    }
+  });
+  return { saved: n };
 }

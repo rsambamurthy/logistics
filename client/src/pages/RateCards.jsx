@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { api } from '../api.js';
 import { useMeta } from '../components/meta.jsx';
-import { PageHeader, Card, Table, Button, Modal, FormGrid, Field, Select, Badge, Loading, ErrorBox, useLoad, useAction, fmtDate } from '../components/ui.jsx';
+import { PageHeader, Card, Table, Button, Modal, FormGrid, Field, Select, Badge, Loading, ErrorBox, useLoad, useAction, fmtDate, money } from '../components/ui.jsx';
 import { ChargeLinesTable } from '../components/rfq.jsx';
 
 const PLACE_HINT = {
@@ -23,12 +23,13 @@ function status(c) {
 
 export default function RateCards() {
   const meta = useMeta();
-  const [filters, setFilters] = useState({ leg: '', vendor: '', status: '' });
+  const [filters, setFilters] = useState({ leg: '', vendor: '', status: '', source: '' });
   const qs = new URLSearchParams(Object.entries(filters).filter(([, v]) => v)).toString();
   const list = useLoad(() => api.get(`/rate-cards${qs ? `?${qs}` : ''}`), [qs]);
   const vendors = useLoad(() => api.get('/agents?role=agent'));
   const [edit, setEdit] = useState(null);
   const [importing, setImporting] = useState(false);
+  const [aiRead, setAiRead] = useState(false);
   const [busy, run] = useAction();
   const open = (c) => run(`o${c.id}`, async () => setEdit(await api.get(`/rate-cards/${c.id}`)));
   return (
@@ -37,7 +38,8 @@ export default function RateCards() {
         title="Rate cards"
         sub="Your stored buy rates: your own tariffs or a vendor's (line, transporter, customs agent). Matching cards price new RFQs instantly, without emailing anyone."
         actions={<>
-          <Button variant="ghost" onClick={() => setImporting(true)}>Import from Excel</Button>
+          <Button variant="ghost" onClick={() => setAiRead(true)}>Read a rate sheet with AI</Button>
+          <Button variant="ghost" onClick={() => setImporting(true)}>Import from Excel template</Button>
           <Button onClick={() => setEdit({ active: true, leg: 'freight', mode: 'FCL', lines: [] })}>+ New rate card</Button>
         </>}
       />
@@ -45,6 +47,7 @@ export default function RateCards() {
         <div className="row gap wrap filters" style={{ marginBottom: 12 }}>
           <Select placeholder="All legs" options={meta.legOptions} value={filters.leg} onChange={(e) => setFilters({ ...filters, leg: e.target.value })} />
           <Select placeholder="All vendors" options={[{ value: 'own', label: 'Our own rates' }, ...(vendors.data || []).map((v) => ({ value: v.id, label: v.company }))]} value={filters.vendor} onChange={(e) => setFilters({ ...filters, vendor: e.target.value })} />
+          <Select placeholder="Any source" options={[{ value: 'manual', label: 'Entered / imported' }, { value: 'memory', label: 'Remembered from agent quotes' }, { value: 'ai_import', label: 'Read by AI' }]} value={filters.source} onChange={(e) => setFilters({ ...filters, source: e.target.value })} />
           <Select placeholder="Any status" options={[{ value: 'active', label: 'Active' }, { value: 'expiring', label: 'Expiring in 7 days' }, { value: 'expired', label: 'Expired' }]} value={filters.status} onChange={(e) => setFilters({ ...filters, status: e.target.value })} />
         </div>
         {list.loading ? <Loading /> : list.error ? <ErrorBox error={list.error} /> : (
@@ -53,7 +56,7 @@ export default function RateCards() {
             onRowClick={open}
             empty="No rate cards yet. Add one or import your Excel rate sheet."
             columns={[
-              { key: 'name', label: 'Rate card', render: (c) => <b>{c.name}</b> },
+              { key: 'name', label: 'Rate card', render: (c) => <><b>{c.name}</b> {c.source === 'memory' && <Badge color="purple">remembered</Badge>}{c.source === 'ai_import' && <Badge color="blue">AI import</Badge>}</> },
               { label: 'Vendor', render: (c) => c.vendor_name || <span className="muted">Own rates</span> },
               { label: 'Leg', render: (c) => meta.legName(c.leg) },
               { key: 'mode', label: 'Mode', render: (c) => c.mode || 'Any' },
@@ -68,6 +71,7 @@ export default function RateCards() {
       </Card>
       {edit && <CardModal card={edit} vendors={vendors.data || []} onClose={() => setEdit(null)} onDone={() => { setEdit(null); list.reload(); }} />}
       {importing && <ImportModal onClose={() => setImporting(false)} onDone={() => list.reload()} />}
+      {aiRead && <AiReadModal vendors={vendors.data || []} onClose={() => setAiRead(false)} onDone={() => { setAiRead(false); list.reload(); }} />}
     </>
   );
 }
@@ -137,6 +141,61 @@ function ImportModal({ onClose, onDone }) {
         <div className={`alert ${result.errors.length ? 'alert-amber' : 'alert-blue'}`}>
           {result.created} new card(s), {result.replaced} updated, {result.lines} charge line(s).
           {result.errors.length > 0 && <ul className="small">{result.errors.slice(0, 15).map((e, i) => <li key={i}>{e}</li>)}</ul>}
+        </div>
+      )}
+    </Modal>
+  );
+}
+
+function AiReadModal({ vendors, onClose, onDone }) {
+  const meta = useMeta();
+  const [file, setFile] = useState(null);
+  const [text, setText] = useState('');
+  const [vendor, setVendor] = useState('');
+  const [result, setResult] = useState(null);
+  const [keep, setKeep] = useState({});
+  const [busy, run] = useAction();
+  const read = () => run('read', async () => {
+    const fd = new FormData();
+    if (file) fd.append('file', file);
+    if (text) fd.append('text', text);
+    const v = vendors.find((x) => String(x.id) === String(vendor));
+    if (v) fd.append('hint', `rates from ${v.company}`);
+    const r = await api.form('/rate-cards/ai-read', fd);
+    setResult(r);
+    setKeep(Object.fromEntries(r.cards.map((_, i) => [i, true])));
+  });
+  const save = () => run('save', async () => {
+    const cards = result.cards.filter((_, i) => keep[i]);
+    await api.post('/rate-cards/bulk', { cards, vendor_id: vendor || null });
+    onDone();
+  }, 'Rate cards saved');
+  return (
+    <Modal wide title="Read a rate sheet with AI" onClose={onClose} footer={result ? <Button busy={busy === 'save'} disabled={!Object.values(keep).some(Boolean)} onClick={save}>Save {Object.values(keep).filter(Boolean).length} rate card(s)</Button> : <Button busy={busy === 'read'} disabled={!file && !text.trim()} onClick={read}>Read</Button>}>
+      {!result ? (
+        <div className="stack">
+          <p className="muted">Upload a carrier's or agent's rate sheet in any layout (PDF, Excel, photo) or paste the email text. The AI turns it into rate cards for you to check before saving.</p>
+          <Field label="Whose rates are these?"><Select placeholder="Our own rates" options={vendors.map((v) => ({ value: v.id, label: v.company }))} value={vendor} onChange={(e) => setVendor(e.target.value)} /></Field>
+          <Field label="Rate sheet file"><input type="file" accept=".pdf,.xlsx,.xls,.csv,.png,.jpg,.jpeg" onChange={(e) => setFile(e.target.files[0])} /></Field>
+          <Field label="…or paste the rates"><textarea className="input" rows={6} value={text} onChange={(e) => setText(e.target.value)} /></Field>
+        </div>
+      ) : (
+        <div className="stack">
+          {result.notes && <div className="alert alert-amber small">{result.notes}</div>}
+          {!result.cards.length && <div className="empty">No rates found in this file.</div>}
+          {result.cards.map((c, i) => (
+            <div key={i} className="quote-card">
+              <label className="check"><input type="checkbox" checked={!!keep[i]} onChange={(e) => setKeep({ ...keep, [i]: e.target.checked })} /> <b>{c.name}</b></label>
+              <div className="small muted">{meta.legName(c.leg)} · {c.mode || 'Any mode'} · {c.origin || 'Any'}{c.destination ? ` → ${c.destination}` : ''}{c.carrier ? ` · ${c.carrier}` : ''} · valid {c.valid_from || '?'} – {c.valid_to || '?'}</div>
+              <table className="table compact">
+                <thead><tr><th>Charge</th><th>Basis</th><th>Container / break</th><th style={{ textAlign: 'right' }}>Rate</th></tr></thead>
+                <tbody>{c.lines.map((l, j) => (
+                  <tr key={j}><td>{l.description || meta.chargeName(l.charge_code)} <span className="muted small">{l.charge_code}</span></td><td>{meta.basisName(l.basis)}</td><td className="small">{l.equipment || ''}{l.qty_from !== null || l.qty_to !== null ? ` ${l.qty_from ?? 0}–${l.qty_to ?? '∞'}` : ''}{l.min_amount ? ` min ${l.min_amount}` : ''}</td><td style={{ textAlign: 'right' }}>{money(l.rate, l.currency)}</td></tr>
+                ))}</tbody>
+              </table>
+            </div>
+          ))}
+          <p className="muted small">You can edit any card after saving.</p>
         </div>
       )}
     </Modal>

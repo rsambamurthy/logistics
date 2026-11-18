@@ -5,6 +5,7 @@ import { attachmentBlocks, htmlToText } from './extract.js';
 import { parseAgentReply, classifyEmail } from './ai.js';
 import { getSetting, getAiKey } from './settings.js';
 import { createRfqFromEmail } from './intake.js';
+import { rememberQuote } from './rateCards.js';
 
 const addr = (a) => (a?.value || []).map((v) => v.address?.toLowerCase()).filter(Boolean);
 
@@ -171,6 +172,7 @@ export async function parseEmail(emailId) {
   const verified = result.confidence >= review_threshold && result.lines.every((l) => l.confidence >= review_threshold);
   const quote = await saveQuote({ ...result, rfq_id: rfq.id, invite_id: invite.id, email_id: email.id, verified, source: 'ai' });
   await q("UPDATE emails SET parse_status='parsed' WHERE id=$1", [email.id]);
+  if (verified) await rememberQuote(quote.id).catch((e) => console.error('rate memory', e.message));
   return { status: 'parsed', quote };
 }
 

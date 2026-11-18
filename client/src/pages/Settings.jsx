@@ -4,6 +4,7 @@ import RateCards from './RateCards.jsx';
 import Agents from './Agents.jsx';
 import Customers from './Customers.jsx';
 import Subscription from './Subscription.jsx';
+import Activity from './Activity.jsx';
 import { Tenants, Plans } from './Platform.jsx';
 import { api } from '../api.js';
 import { useMeta } from '../components/meta.jsx';
@@ -23,6 +24,7 @@ const SECTIONS = [
   { key: 'ai', label: 'AI', hint: 'Reading replies and enquiries' },
   { key: 'users', label: 'Users', hint: 'Who can sign in' },
   { key: 'subscription', label: 'Subscription', hint: 'Plan, usage and billing' },
+  { key: 'activity', label: 'Activity log', hint: 'Who did what, and when' },
   { group: 'Integrata admin', platform: true },
   { key: 'tenants', label: 'Tenants', hint: 'All companies on the platform', platform: true },
   { key: 'plans', label: 'Plans', hint: 'Prices and limits', platform: true },
@@ -37,11 +39,12 @@ export default function Settings({ user }) {
     <div className="with-subnav">
       <SideMenu title="Settings" items={SECTIONS.filter((x) => !x.platform || user.platform_admin).map((x) => (x.group ? x : { to: `/settings/${x.key}`, label: x.label, hint: x.hint }))} />
       <div className="subnav-body">
-        {!admin && current.key !== 'subscription' && <div className="alert alert-amber">Only admins can change settings.</div>}
+        {!admin && !['subscription', 'activity'].includes(current.key) && <div className="alert alert-amber">Only admins can change settings.</div>}
         {current.key === 'mailboxes' && <><PageHeader title="RFQ mailboxes" /><Mailboxes /></>}
         {current.key === 'rate-cards' && <RateCards />}
         {current.key === 'partner-agents' && <Agents />}
         {current.key === 'subscription' && <Subscription admin={admin} />}
+        {current.key === 'activity' && (admin ? <Activity /> : <div className="alert alert-amber">Only admins can see the activity log.</div>)}
         {current.key === 'tenants' && user.platform_admin && <Tenants />}
         {current.key === 'plans' && user.platform_admin && <Plans />}
         {current.key === 'customers' && <Customers />}

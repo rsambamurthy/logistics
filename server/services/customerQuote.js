@@ -12,6 +12,7 @@ import { customerQuoteEmail, quoteFollowupEmail, routeText } from './templates.j
 import { t as tr, legLabel, basisLabel } from './i18n.js';
 import { awardRfq } from './rfq.js';
 import { PRODUCT } from '../lib/brand.js';
+import { audit } from './audit.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const FONT_DIR = path.join(__dirname, '..', 'fonts');
@@ -326,11 +327,17 @@ export async function quoteHousekeeping() {
       [Number(pricing.followup_days_before_expiry ?? 2)]
     );
     for (const d of due) {
-      try { await followUpQuote(d.id); followed++; } catch (e) { console.error('follow-up failed', d.id, e.message); }
+      try {
+        await followUpQuote(d.id);
+        followed++;
+        const cq = await one('SELECT rfq_id, ref FROM customer_quotes WHERE id=$1', [d.id]);
+        await audit(null, 'Automatic quotation follow-up', { entity: 'customer_quote', entityId: d.id, rfqId: cq?.rfq_id, summary: cq?.ref });
+      } catch (e) { console.error('follow-up failed', d.id, e.message); }
     }
   }
-  const expired = await q("UPDATE customer_quotes SET status='expired', decided_at=now() WHERE status='sent' AND valid_until < current_date RETURNING rfq_id");
+  const expired = await q("UPDATE customer_quotes SET status='expired', decided_at=now() WHERE status='sent' AND valid_until < current_date RETURNING id, rfq_id, ref");
   for (const e of expired) {
+    await audit(null, 'Quotation expired', { entity: 'customer_quote', entityId: e.id, rfqId: e.rfq_id, summary: e.ref });
     const open = await one("SELECT count(*)::int AS n FROM customer_quotes WHERE rfq_id=$1 AND status IN ('draft','sent','accepted')", [e.rfq_id]);
     if (!open.n) await q("UPDATE rfqs SET status='expired' WHERE id=$1 AND status='quoted'", [e.rfq_id]);
   }

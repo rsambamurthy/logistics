@@ -111,3 +111,20 @@ DO $$ BEGIN
     UPDATE users SET email_verified_at = now();
   END IF;
 END $$;
+
+-- 10. Audit log
+CREATE TABLE IF NOT EXISTS audit_log (
+  id SERIAL PRIMARY KEY,
+  at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  user_id INT,
+  user_name TEXT,
+  action TEXT NOT NULL,
+  entity TEXT,
+  entity_id INT,
+  rfq_id INT,
+  summary TEXT,
+  details JSONB,
+  ip TEXT
+);
+CREATE INDEX IF NOT EXISTS audit_log_at ON audit_log(at DESC);
+CREATE INDEX IF NOT EXISTS audit_log_rfq ON audit_log(rfq_id);

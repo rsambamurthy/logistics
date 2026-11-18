@@ -63,3 +63,13 @@ CREATE TABLE IF NOT EXISTS auth_tokens (
   created_at TIMESTAMPTZ DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS auth_tokens_email ON auth_tokens(email);
+
+-- account emails already sent (so each is sent once per occasion)
+CREATE TABLE IF NOT EXISTS tenant_notices (
+  id SERIAL PRIMARY KEY,
+  tenant_id INT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL,
+  occasion TEXT NOT NULL DEFAULT '',
+  sent_at TIMESTAMPTZ DEFAULT now(),
+  UNIQUE (tenant_id, kind, occasion)
+);

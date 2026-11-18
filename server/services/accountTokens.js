@@ -4,6 +4,7 @@ import bcrypt from 'bcryptjs';
 import { pq, pone, runAsTenant, one, q } from '../db.js';
 import { getTenant } from './tenants.js';
 import { layout, sendSystemMail, appUrl } from './systemMail.js';
+import { sendWelcome } from './lifecycle.js';
 
 const TTL_HOURS = { reset: 1, verify: 48, invite: 72 };
 const hash = (t) => crypto.createHash('sha256').update(t).digest('hex');
@@ -102,6 +103,8 @@ export async function verifyEmail(token) {
   const t = await consume(token, ['verify']);
   const tenant = await getTenant(t.tenant_id, { fresh: true });
   const user = await runAsTenant(tenant, () => one('UPDATE users SET email_verified_at=coalesce(email_verified_at, now()) WHERE id=$1 RETURNING id,email,name,role', [t.user_id]));
+  // the company's first confirmed admin gets the welcome email
+  if (user.role === 'admin') sendWelcome(tenant).catch((e) => console.error('welcome', e.message));
   return { user, tenant };
 }
 

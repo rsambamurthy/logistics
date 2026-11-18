@@ -6,6 +6,7 @@ import { parseAgentReply, classifyEmail } from './ai.js';
 import { getSetting, getAiKey } from './settings.js';
 import { createRfqFromEmail } from './intake.js';
 import { rememberQuote } from './rateCards.js';
+import { audit } from './audit.js';
 
 const addr = (a) => (a?.value || []).map((v) => v.address?.toLowerCase()).filter(Boolean);
 
@@ -172,6 +173,8 @@ export async function parseEmail(emailId) {
   const verified = result.confidence >= review_threshold && result.lines.every((l) => l.confidence >= review_threshold);
   const quote = await saveQuote({ ...result, rfq_id: rfq.id, invite_id: invite.id, email_id: email.id, verified, source: 'ai' });
   await q("UPDATE emails SET parse_status='parsed' WHERE id=$1", [email.id]);
+  const agentName = (await one('SELECT company FROM agents WHERE id=$1', [invite.agent_id]))?.company;
+  await audit(null, 'Agent reply read by AI', { entity: 'agent_quote', entityId: quote.id, rfqId: rfq.id, summary: `${agentName}: ${result.lines.length} charge(s), confidence ${Math.round(result.confidence * 100)}%${verified ? '' : ' (needs review)'}` });
   if (verified) await rememberQuote(quote.id).catch((e) => console.error('rate memory', e.message));
   return { status: 'parsed', quote };
 }

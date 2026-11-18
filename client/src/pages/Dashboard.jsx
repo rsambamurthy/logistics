@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { api } from '../api.js';
 import { PageHeader, Card, Table, Badge, Stat, Button, Loading, ErrorBox, useLoad, fmtDate, Select } from '../components/ui.jsx';
 import { routeOf } from '../components/rfq.jsx';
+import SetupGuide from '../components/SetupGuide.jsx';
 
 export default function Dashboard() {
   const nav = useNavigate();
@@ -13,6 +14,7 @@ export default function Dashboard() {
   return (
     <>
       <PageHeader title="RFQs" sub="Enquiries from customers and partner agents, and the rates collected for them" actions={<Button onClick={() => nav('/rfqs/new')}>+ New RFQ</Button>} />
+      <SetupGuide />
       {stats.data && (
         <div className="stats">
           <Stat label="New enquiries by email" value={stats.data.new_enquiries} tone={stats.data.new_enquiries ? 'warn' : ''} />

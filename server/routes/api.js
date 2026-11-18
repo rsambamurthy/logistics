@@ -18,6 +18,8 @@ import { reports } from '../services/reports.js';
 import { signUp, getTenant, accessState, usage, assertCanCreateRfq } from '../services/tenants.js';
 import { requestPasswordReset, resetPassword, verifyEmail, resendVerification, peekToken } from '../services/accountTokens.js';
 import { rateLimit } from '../lib/rateLimit.js';
+import { auditMiddleware, listAudit } from '../services/audit.js';
+import { onboardingStatus } from '../services/onboarding.js';
 import billing from './billing.js';
 import platform from './platform.js';
 
@@ -76,6 +78,7 @@ function tenantView(t) {
 }
 
 r.use(requireAuth);
+r.use(auditMiddleware);
 r.use(requireActiveSubscription);
 r.use('/billing', billing.router);
 r.use('/platform', platform);
@@ -325,6 +328,13 @@ r.post('/customer-quotes/:id/follow-up', h(async (req, res) => { await followUpQ
 r.post('/customer-quotes/:id/lost', h(async (req, res) => { await markLost(id(req), req.body); res.json({ ok: true }); }));
 r.get('/lost-reasons', (req, res) => res.json(LOST_REASONS));
 r.get('/reports', h(async (req, res) => res.json(await reports(req.query))));
+r.get('/onboarding', h(async (req, res) => res.json(await onboardingStatus())));
+r.post('/onboarding/dismiss', h(async (req, res) => { await setSetting('onboarding', { dismissed: req.body.dismissed !== false }); res.json(await onboardingStatus()); }));
+r.get('/audit', h(async (req, res) => {
+  // admins see everything; others only the history of a specific RFQ
+  if (req.user.role !== 'admin' && !req.query.rfq) return res.status(403).json({ error: 'Admin only' });
+  res.json(await listAudit(req.query));
+}));
 r.post('/customer-quotes/:id/accept', h(async (req, res) => {
   const results = await acceptQuote(id(req), { option: Number(req.body.option) || 0, sendRegrets: req.body.sendRegrets !== false, note: req.body.note, award: req.body.award !== false });
   res.json({ ok: true, results });

@@ -3,6 +3,7 @@ import express from 'express';
 import { pq, pone } from '../db.js';
 import { requireAdmin } from '../auth.js';
 import { getTenant, updateTenant, accessState, usage, clearTenantCache } from '../services/tenants.js';
+import { onSubscriptionEvent } from '../services/lifecycle.js';
 import { razorpayEnabled, createPlan, createSubscription, updateSubscription, cancelSubscription, getSubscription, verifyWebhook, statusFromRazorpay } from '../services/razorpay.js';
 
 const router = express.Router();
@@ -83,6 +84,15 @@ webhook.post('/', h(async (req, res) => {
       await applySubscription(sub, t.id);
       clearTenantCache(t.id);
       await pq('INSERT INTO billing_events(tenant_id,type,payload) VALUES($1,$2,$3)', [t.id, event, req.body]);
+      onSubscriptionEvent(t.id, event).catch((e) => console.error('billing notice', e.message));
+    }
+  } else if (event === 'payment.failed') {
+    // payment events carry the subscription id on the payment entity
+    const pay = req.body?.payload?.payment?.entity;
+    const t = pay?.subscription_id ? await pone('SELECT id FROM tenants WHERE razorpay_subscription_id=$1', [pay.subscription_id]) : null;
+    if (t) {
+      await pq('INSERT INTO billing_events(tenant_id,type,payload) VALUES($1,$2,$3)', [t.id, event, req.body]);
+      onSubscriptionEvent(t.id, event).catch((e) => console.error('billing notice', e.message));
     }
   }
   res.json({ ok: true });

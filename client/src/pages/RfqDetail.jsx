@@ -5,7 +5,13 @@ import { useMeta } from '../components/meta.jsx';
 import { PageHeader, Card, Button, Badge, Table, Tabs, Modal, Field, Input, Textarea, Select, Check, Loading, ErrorBox, useLoad, useAction, money, fmtDate, fmtDateTime } from '../components/ui.jsx';
 import { ShipmentForm, AgentPicker, QuoteEditor, routeOf, cargoOf } from '../components/rfq.jsx';
 import CustomerQuoteTab from '../components/CustomerQuoteTab.jsx';
+import ActivityList from '../components/ActivityList.jsx';
 import { useNavigate, Link } from 'react-router-dom';
+
+function HistoryTab({ rfqId }) {
+  const h = useLoad(() => api.get(`/audit?rfq=${rfqId}&days=3650`), [rfqId]);
+  return <Card title="History">{h.loading ? <Loading /> : h.error ? <ErrorBox error={h.error} /> : <ActivityList rows={h.data} showRfq={false} empty="Nothing recorded yet." />}</Card>;
+}
 
 function AlternativeButton({ rfq, linked }) {
   const nav = useNavigate();
@@ -57,6 +63,7 @@ export default function RfqDetail() {
           { key: 'compare', label: 'Compare' },
           { key: 'customer', label: rfq.requester_role === 'agent' ? 'Quote to agent' : 'Customer quote', count: customerQuotes.length || null },
           { key: 'shipment', label: 'Shipment details' },
+          { key: 'history', label: 'History' },
         ]}
       />
       {tab === 'agents' && <AgentsTab data={d.data} reload={d.reload} />}
@@ -64,6 +71,7 @@ export default function RfqDetail() {
       {tab === 'compare' && <CompareTab rfq={rfq} selection={selection} setSelection={setSelection} goQuote={() => setTab('customer')} />}
       {tab === 'customer' && <CustomerQuoteTab key={rfq.id} data={d.data} selection={selection} reload={d.reload} goCompare={() => setTab('compare')} />}
       {tab === 'shipment' && <ShipmentTab data={d.data} reload={d.reload} />}
+      {tab === 'history' && <HistoryTab rfqId={rfq.id} />}
     </>
   );
 }

@@ -28,6 +28,7 @@ export const DEFAULTS = {
     followup_days_before_expiry: 2,
     terms: 'Rates subject to space and equipment availability at time of booking.\nCharges not mentioned are payable at actuals.\nValidity as stated; surcharges as per carrier at time of shipment.',
   },
+  onboarding: { dismissed: false },
   ai: {
     model: 'claude-sonnet-5-5',
     key_enc: null,

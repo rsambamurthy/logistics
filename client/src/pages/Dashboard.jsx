@@ -21,6 +21,7 @@ export default function Dashboard() {
           <Stat label="Quoted to customer" value={stats.data.quoted} />
           <Stat label="Awarded" value={stats.data.awarded} />
           <Stat label="Unmatched emails" value={stats.data.unmatched} tone={stats.data.unmatched ? 'warn' : ''} />
+          <Stat label="Rate cards expiring in 7 days" value={stats.data.rate_cards_expiring} tone={stats.data.rate_cards_expiring ? 'warn' : ''} />
         </div>
       )}
       <Card title="All RFQs" actions={<Select value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="All statuses" options={['new', 'draft', 'sent', 'quoting', 'quoted', 'awarded', 'closed']} />}>

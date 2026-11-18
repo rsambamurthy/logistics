@@ -152,16 +152,63 @@ export function AgentPicker({ rfq, invites, onChange, locked = [] }) {
 
 const blankLine = (leg = 'freight') => ({ leg, charge_code: 'OFR', description: '', basis: 'per_container', rate: '', currency: 'USD', qty: '' });
 
-/** Edit the lines and terms of an agent quote. Used for AI review and manual entry. */
-export function QuoteEditor({ value, onChange, legs }) {
+/**
+ * Editable table of charge lines. Shared by agent-quote review/entry and rate cards.
+ * opts: { leg: show leg column (legs = allowed), qty: show qty override, equipment: show container type, breaks: show weight breaks + minimum }
+ */
+export function ChargeLinesTable({ lines, onChange, legs, opts = {}, newLine }) {
   const meta = useMeta();
-  const set = (k, v) => onChange({ ...value, [k]: v });
-  const lines = value.lines || [];
-  const setLine = (i, k, v) => set('lines', lines.map((l, j) => (j === i ? { ...l, [k]: v, ...(k !== 'confidence' ? { confidence: 1 } : {}) } : l)));
+  const setLine = (i, k, v) => onChange(lines.map((l, j) => (j === i ? { ...l, [k]: v, ...(k !== 'confidence' ? { confidence: 1 } : {}) } : l)));
   const onCode = (i, code) => {
     const c = meta.charges.find((x) => x.code === code);
-    set('lines', lines.map((l, j) => (j === i ? { ...l, charge_code: code, confidence: 1, description: l.description || c?.name } : l)));
+    onChange(lines.map((l, j) => (j === i ? { ...l, charge_code: code, confidence: 1, description: l.description || c?.name, basis: l.basis || c?.basis } : l)));
   };
+  const numIn = (i, k, w = 80, ph) => <Input type="number" step="0.01" style={{ width: w, textAlign: 'right' }} placeholder={ph} value={lines[i][k]} onChange={(e) => setLine(i, k, e.target.value === '' ? '' : Number(e.target.value))} />;
+  const low = (l) => l.confidence !== undefined && l.confidence !== null && l.confidence < 0.75;
+  return (
+    <div className="stack-sm">
+      <div className="table-wrap">
+        <table className="table compact">
+          <thead>
+            <tr>
+              {opts.leg && <th>Leg</th>}
+              <th>Charge</th><th>Description</th><th>Basis</th>
+              {opts.equipment && <th>Container</th>}
+              <th>Cur</th><th style={{ textAlign: 'right' }}>Rate</th>
+              {opts.breaks && <><th>From</th><th>To</th><th>Minimum</th></>}
+              {opts.qty && <th>Qty override</th>}
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {lines.map((l, i) => (
+              <tr key={i} className={low(l) ? 'low-conf' : ''}>
+                {opts.leg && <td><Select options={meta.legOptions.filter((o) => !legs || legs.includes(o.value) || o.value === l.leg)} value={l.leg} onChange={(e) => setLine(i, 'leg', e.target.value)} /></td>}
+                <td><Select options={meta.chargeOptions} value={l.charge_code} onChange={(e) => onCode(i, e.target.value)} /></td>
+                <td><Input value={l.description} onChange={(e) => setLine(i, 'description', e.target.value)} /></td>
+                <td><Select options={meta.basisOptions} value={l.basis} onChange={(e) => setLine(i, 'basis', e.target.value)} /></td>
+                {opts.equipment && <td><Select options={meta.containerTypes} placeholder="All" value={l.equipment} onChange={(e) => setLine(i, 'equipment', e.target.value)} /></td>}
+                <td><Select options={meta.currencies.includes(l.currency) ? meta.currencies : [...meta.currencies, l.currency]} value={l.currency} onChange={(e) => setLine(i, 'currency', e.target.value)} /></td>
+                <td>{numIn(i, 'rate', 100)}</td>
+                {opts.breaks && <><td>{numIn(i, 'qty_from', 70, '—')}</td><td>{numIn(i, 'qty_to', 70, '—')}</td><td>{numIn(i, 'min_amount', 80, '—')}</td></>}
+                {opts.qty && <td>{numIn(i, 'qty', 70, 'auto')}</td>}
+                <td>
+                  {low(l) && <span title="AI was unsure" className="warn-dot">!</span>}
+                  <button type="button" className="link" onClick={() => onChange(lines.filter((_, j) => j !== i))}>×</button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div><Button type="button" variant="ghost" small onClick={() => onChange([...lines, newLine ? newLine() : blankLine(legs?.[0])])}>+ Add charge</Button></div>
+    </div>
+  );
+}
+
+/** Edit the lines and terms of an agent quote. Used for AI review and manual entry. */
+export function QuoteEditor({ value, onChange, legs }) {
+  const set = (k, v) => onChange({ ...value, [k]: v });
   return (
     <div className="stack">
       <div className="grid g6">
@@ -173,29 +220,7 @@ export function QuoteEditor({ value, onChange, legs }) {
         <Field label="Exclusions / at actuals" span={3}><Input value={value.exclusions} onChange={(e) => set('exclusions', e.target.value)} /></Field>
         <Field label="Remarks" span={3}><Input value={value.remarks} onChange={(e) => set('remarks', e.target.value)} /></Field>
       </div>
-      <div className="table-wrap">
-        <table className="table compact">
-          <thead><tr><th>Leg</th><th>Charge</th><th>As written</th><th>Basis</th><th>Cur</th><th style={{ textAlign: 'right' }}>Rate</th><th>Qty override</th><th></th></tr></thead>
-          <tbody>
-            {lines.map((l, i) => (
-              <tr key={i} className={l.confidence !== undefined && l.confidence !== null && l.confidence < 0.75 ? 'low-conf' : ''}>
-                <td><Select options={meta.legOptions.filter((o) => !legs || legs.includes(o.value) || o.value === l.leg)} value={l.leg} onChange={(e) => setLine(i, 'leg', e.target.value)} /></td>
-                <td><Select options={meta.chargeOptions} value={l.charge_code} onChange={(e) => onCode(i, e.target.value)} /></td>
-                <td><Input value={l.description} onChange={(e) => setLine(i, 'description', e.target.value)} /></td>
-                <td><Select options={meta.basisOptions} value={l.basis} onChange={(e) => setLine(i, 'basis', e.target.value)} /></td>
-                <td><Select options={meta.currencies.includes(l.currency) ? meta.currencies : [...meta.currencies, l.currency]} value={l.currency} onChange={(e) => setLine(i, 'currency', e.target.value)} /></td>
-                <td><Input type="number" step="0.01" style={{ textAlign: 'right', width: 100 }} value={l.rate} onChange={(e) => setLine(i, 'rate', e.target.value === '' ? '' : Number(e.target.value))} /></td>
-                <td><Input type="number" style={{ width: 70 }} placeholder="auto" value={l.qty} onChange={(e) => setLine(i, 'qty', e.target.value === '' ? '' : Number(e.target.value))} /></td>
-                <td>
-                  {l.confidence !== undefined && l.confidence !== null && l.confidence < 0.75 && <span title="AI was unsure" className="warn-dot">!</span>}
-                  <button type="button" className="link" onClick={() => set('lines', lines.filter((_, j) => j !== i))}>×</button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      <div><Button type="button" variant="ghost" small onClick={() => set('lines', [...lines, blankLine(legs?.[0])])}>+ Add charge</Button></div>
+      <ChargeLinesTable lines={value.lines || []} onChange={(l) => set('lines', l)} legs={legs} opts={{ leg: true, qty: true }} />
     </div>
   );
 }

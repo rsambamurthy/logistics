@@ -9,6 +9,7 @@ import { getMailbox, testSmtp, testImap, pollMailbox, canReceive } from '../serv
 import { createRfq, updateRfq, loadRfq, ownRatesInvite, sendRfq, sendInvite, remindInvite, counterInvite, compareRfq, awardRfq } from '../services/rfq.js';
 import { ingestManual, parseEmail, assignEmail, saveQuote } from '../services/replies.js';
 import { createRfqFromEmail } from '../services/intake.js';
+import { listCards, getCard, saveCard, copyCard, deleteCard, applyRateCards, templateWorkbook, importRateCards, expiringCount } from '../services/rateCards.js';
 import { parseEnquiry } from '../services/ai.js';
 import { previewCustomerQuote, saveCustomerQuote, renderPdf, emailCustomerQuote } from '../services/customerQuote.js';
 
@@ -141,7 +142,8 @@ r.get('/dashboard', h(async (req, res) => {
   const review = await one(`SELECT count(*)::int AS n FROM agent_quotes q JOIN rfqs r ON r.id=q.rfq_id WHERE NOT q.verified AND NOT q.superseded AND NOT q.declined AND r.status IN ('sent','quoting')`);
   const unmatched = await one(`SELECT count(*)::int AS n FROM emails WHERE direction='in' AND invite_id IS NULL AND parse_status='unmatched'`);
   const errors = await one(`SELECT count(*)::int AS n FROM emails WHERE parse_status='error'`);
-  res.json({ ...s, needs_review: review.n, unmatched: unmatched.n, parse_errors: errors.n });
+  const rc = await expiringCount();
+  res.json({ ...s, rate_cards_expiring: rc.expiring, rate_cards_expired: rc.expired, needs_review: review.n, unmatched: unmatched.n, parse_errors: errors.n });
 }));
 
 r.get('/rfqs', h(async (req, res) => {
@@ -152,7 +154,13 @@ r.get('/rfqs', h(async (req, res) => {
     FROM rfqs r LEFT JOIN agents p ON p.id=r.requester_id ORDER BY r.id DESC LIMIT 500`));
 }));
 r.post('/enquiry/parse', h(async (req, res) => res.json(await parseEnquiry(req.body.text || ''))));
-r.post('/rfqs', h(async (req, res) => res.json(await createRfq(req.body, req.user.id))));
+r.post('/rfqs', h(async (req, res) => {
+  const rfq = await createRfq(req.body, req.user.id);
+  // price instantly from stored rate cards (never emails anyone)
+  try { rfq.rate_cards = await applyRateCards(rfq.id); } catch (e) { console.error('rate cards', e.message); }
+  res.json(rfq);
+}));
+r.post('/rfqs/:id/apply-rate-cards', h(async (req, res) => res.json(await applyRateCards(id(req)))));
 r.get('/rfqs/:id', h(async (req, res) => {
   const d = await loadRfq(id(req));
   if (!d) return res.status(404).json({ error: 'Not found' });
@@ -164,6 +172,23 @@ r.post('/rfqs/:id/send', h(async (req, res) => res.json(await sendRfq(id(req))))
 r.post('/rfqs/:id/own-rates', h(async (req, res) => res.json(await ownRatesInvite(id(req)))));
 r.get('/rfqs/:id/compare', h(async (req, res) => res.json(await compareRfq(id(req), req.query.currency))));
 r.post('/rfqs/:id/award', h(async (req, res) => res.json(await awardRfq(id(req), req.body.selection, req.body))));
+
+// ---------- rate cards ----------
+r.get('/rate-cards', h(async (req, res) => res.json(await listCards(req.query))));
+r.get('/rate-cards-template', h(async (req, res) => {
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.setHeader('Content-Disposition', 'attachment; filename="rate-card-template.xlsx"');
+  res.send(templateWorkbook());
+}));
+r.post('/rate-cards/import', upload.single('file'), h(async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'Choose an Excel or CSV file' });
+  res.json(await importRateCards(req.file.buffer));
+}));
+r.get('/rate-cards/:id', h(async (req, res) => res.json(await getCard(id(req)))));
+r.post('/rate-cards', h(async (req, res) => res.json(await saveCard(req.body))));
+r.put('/rate-cards/:id', h(async (req, res) => res.json(await saveCard({ ...req.body, id: id(req) }))));
+r.post('/rate-cards/:id/copy', h(async (req, res) => res.json(await copyCard(id(req)))));
+r.delete('/rate-cards/:id', h(async (req, res) => { await deleteCard(id(req)); res.json({ ok: true }); }));
 
 // ---------- invites ----------
 r.post('/invites/:id/send', h(async (req, res) => { await sendInvite(id(req)); res.json({ ok: true }); }));

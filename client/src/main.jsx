@@ -13,6 +13,7 @@ import Agents from './pages/Agents.jsx';
 import Customers from './pages/Customers.jsx';
 import Inbox from './pages/Inbox.jsx';
 import Settings from './pages/Settings.jsx';
+import RateCards from './pages/RateCards.jsx';
 
 function Shell({ user, onLogout }) {
   const nav = [
@@ -21,6 +22,7 @@ function Shell({ user, onLogout }) {
     ['/inbox', 'Unmatched mail'],
     ['/agents', 'Partner agents'],
     ['/customers', 'Customers'],
+    ['/rate-cards', 'Rate cards'],
     ['/settings', 'Settings'],
   ];
   return (
@@ -41,6 +43,7 @@ function Shell({ user, onLogout }) {
           <Route path="/inbox" element={<Inbox />} />
           <Route path="/agents" element={<Agents />} />
           <Route path="/customers" element={<Customers />} />
+          <Route path="/rate-cards" element={<RateCards />} />
           <Route path="/settings" element={<Settings user={user} />} />
           <Route path="*" element={<Navigate to="/" />} />
         </Routes>

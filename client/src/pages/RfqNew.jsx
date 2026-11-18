@@ -37,6 +37,8 @@ export default function RfqNew() {
     if (invites.some((i) => !i.legs.length)) throw new Error('Each agent needs at least one leg');
     const body = { ...rfq, deadline: rfq.deadline ? new Date(rfq.deadline).toISOString() : null, invites };
     const created = await api.post('/rfqs', body);
+    const priced = (created.rate_cards?.results || []).filter((x) => !x.skipped);
+    if (priced.length) toast(`Priced from rate cards: ${priced.map((x) => x.party).join(', ')}${created.rate_cards.missing_names.length ? ` (still missing: ${created.rate_cards.missing_names.join(', ')})` : ''}`);
     if (send) {
       const res = await api.post(`/rfqs/${created.id}/send`);
       const failed = res.filter((x) => !x.ok);

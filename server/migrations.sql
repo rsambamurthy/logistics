@@ -33,3 +33,39 @@ BEGIN
   END LOOP;
 END $$;
 UPDATE rfqs r SET requester_id = c.party_id FROM customers c WHERE r.customer_id = c.id AND r.requester_id IS NULL;
+
+-- 4. Rate cards: stored buy rates (own or from a vendor) per leg and lane.
+CREATE TABLE IF NOT EXISTS rate_cards (
+  id SERIAL PRIMARY KEY,
+  name TEXT NOT NULL,
+  vendor_id INT REFERENCES agents(id),
+  leg TEXT NOT NULL,
+  mode TEXT,
+  origin TEXT,
+  destination TEXT,
+  carrier TEXT,
+  valid_from DATE,
+  valid_to DATE,
+  transit_days INT,
+  free_days INT,
+  notes TEXT,
+  active BOOLEAN NOT NULL DEFAULT true,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS rate_card_lines (
+  id SERIAL PRIMARY KEY,
+  rate_card_id INT NOT NULL REFERENCES rate_cards(id) ON DELETE CASCADE,
+  charge_code TEXT NOT NULL,
+  description TEXT,
+  basis TEXT NOT NULL,
+  rate NUMERIC NOT NULL,
+  currency TEXT NOT NULL,
+  equipment TEXT,
+  qty_from NUMERIC,
+  qty_to NUMERIC,
+  min_amount NUMERIC,
+  sort INT DEFAULT 0
+);
+ALTER TABLE rfq_invites ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'email';
+ALTER TABLE agent_quotes ADD COLUMN IF NOT EXISTS rate_card_ids INT[];

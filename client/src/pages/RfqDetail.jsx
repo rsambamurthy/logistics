@@ -85,7 +85,7 @@ function AgentsTab({ data, reload }) {
             { label: 'Reminders', render: (i) => i.reminder_count || '', align: 'center' },
             {
               label: '', render: (i) => (
-                !i.agent_email ? <span className="muted small">your own rates</span> :
+                i.source !== 'email' || !i.agent_email ? <span className="muted small">{i.source === 'ratecard' ? 'priced from rate card' : 'your own rates'}</span> :
                 <div className="row gap-sm wrap">
                   <Button variant="ghost" small onClick={() => setOpen(i)}>Emails ({emails.filter((e) => e.invite_id === i.id).length})</Button>
                   {['pending', 'failed'].includes(i.status) && <Button small busy={busy === `s${i.id}`} onClick={() => act(`s${i.id}`, () => api.post(`/invites/${i.id}/send`), 'Sent')}>Send</Button>}
@@ -203,6 +203,13 @@ function ReviewTab({ data, reload }) {
         </Card>
       )}
       <Card title="Agent quotes" actions={<>
+        <Button small variant="ghost" busy={busy === 'rc'} onClick={() => run('rc', async () => {
+          const r = await api.post(`/rfqs/${rfq.id}/apply-rate-cards`);
+          await reload();
+          const done = r.results.filter((x) => !x.skipped);
+          if (!done.length) throw new Error('No matching rate card for this lane, mode and date.');
+          return r;
+        }, 'Priced from rate cards')}>Price from rate cards</Button>
         <Button small variant="ghost" busy={busy === 'own'} onClick={() => run('own', async () => { const inv = await api.post(`/rfqs/${rfq.id}/own-rates`); await reload(); setEdit({ invite_id: inv.id, lines: [], manual: true }); })}>+ Our own rates</Button>
         <Button small variant="ghost" onClick={() => setEdit({ invite_id: invites[0]?.id, lines: [], manual: true })} disabled={!invites.length}>+ Enter agent quote manually</Button>
       </>}>
@@ -217,7 +224,7 @@ function ReviewTab({ data, reload }) {
                   <div>
                     <b>{inv?.agent_company}</b>{' '}
                     {q.declined ? <Badge color="red">declined</Badge> : q.verified ? <Badge color="green">checked</Badge> : <Badge color="amber">needs review</Badge>}{' '}
-                    <span className="muted small">{q.source === 'ai' ? `read by AI · confidence ${Math.round((q.confidence || 0) * 100)}%` : 'entered manually'}</span>
+                    <span className="muted small">{q.source === 'ai' ? `read by AI · confidence ${Math.round((q.confidence || 0) * 100)}%` : q.source === 'ratecard' ? 'from rate cards' : 'entered manually'}</span>
                   </div>
                   <div className="row gap-sm">
                     {em && <Button small variant="ghost" busy={busy === `p${em.id}`} onClick={() => reparse(em.id)}>Re-read</Button>}

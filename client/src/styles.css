@@ -65,7 +65,7 @@ textarea.input { resize: vertical; }
 .badge-grey { background: #eef1f5; color: #4a5568; } .badge-blue { background: var(--blue-l); color: var(--blue); } .badge-green { background: var(--green-l); color: var(--green); }
 .badge-amber { background: var(--amber-l); color: var(--amber); } .badge-red { background: var(--red-l); color: var(--red); } .badge-purple { background: var(--purple-l); color: var(--purple); }
 
-.stats { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; }
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; }
 .stat { background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; }
 .stat b { display: block; font-size: 26px; color: var(--navy); } .stat span { color: var(--muted); font-size: 12.5px; }
 .stat.warn b { color: var(--amber); }

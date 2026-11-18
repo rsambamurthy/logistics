@@ -2,6 +2,7 @@
 import { q, one } from '../db.js';
 import { parseEnquiry } from './ai.js';
 import { createRfq } from './rfq.js';
+import { applyRateCards } from './rateCards.js';
 
 function companyFromAddress(addr = '') {
   const domain = addr.split('@')[1] || addr;
@@ -44,5 +45,6 @@ export async function createRfqFromEmail(emailId, { mailboxId } = {}) {
   });
   await q("UPDATE rfqs SET status='new' WHERE id=$1", [rfq.id]);
   await q("UPDATE emails SET rfq_id=$1, kind='enquiry', parse_status='enquiry', parse_error=NULL WHERE id=$2", [rfq.id, email.id]);
+  await applyRateCards(rfq.id).catch((e) => console.error('rate cards', e.message));
   return rfq;
 }

@@ -18,7 +18,8 @@ export async function nextRef(prefix = 'RFQ') {
   return `${prefix}-${year}-${String(row.n + 1).padStart(4, '0')}`;
 }
 
-export async function createRfq(data, userId) {
+export async function createRfq(dataIn, userId) {
+  const data = { ...dataIn, requester_role: dataIn.requester_role || 'customer' };
   const ref = await nextRef();
   const vals = RFQ_FIELDS.map((f) => (f === 'containers' ? JSON.stringify(data.containers || []) : clean(data[f])));
   const rfq = await one(
@@ -178,14 +179,23 @@ export async function autoRemind() {
   return due.length;
 }
 
+/** An invite that did not go out by email (own rates, rate cards). Reuses an existing invite for that party. */
+export async function systemInvite(rfqId, agentId, source) {
+  const ex = await one('SELECT * FROM rfq_invites WHERE rfq_id=$1 AND agent_id=$2', [rfqId, agentId]);
+  if (ex) return ex;
+  const rfq = await one('SELECT legs FROM rfqs WHERE id=$1', [rfqId]);
+  return one("INSERT INTO rfq_invites(rfq_id,agent_id,tag,legs,status,replied_at,source) VALUES($1,$2,$3,$4,'replied',now(),$5) RETURNING *", [rfqId, agentId, randomTag(), rfq.legs, source]);
+}
+
+export async function ownParty() {
+  return (await one("SELECT * FROM agents WHERE source='internal' LIMIT 1")) ||
+    one("INSERT INTO agents(company, is_agent, is_customer, source, active, notes) VALUES('Our own rates', false, false, 'internal', true, 'System entry for your own buy rates') RETURNING *");
+}
+
 /** Our own buy rates as a pseudo-agent, so they appear in the comparison like any other quote. */
 export async function ownRatesInvite(rfqId) {
-  let party = await one("SELECT * FROM agents WHERE source='internal' LIMIT 1");
-  if (!party) party = await one("INSERT INTO agents(company, is_agent, is_customer, source, active, notes) VALUES('Our own rates', false, false, 'internal', true, 'System entry for your own buy rates') RETURNING *");
-  const rfq = await one('SELECT legs FROM rfqs WHERE id=$1', [rfqId]);
-  const ex = await one('SELECT * FROM rfq_invites WHERE rfq_id=$1 AND agent_id=$2', [rfqId, party.id]);
-  if (ex) return ex;
-  return one("INSERT INTO rfq_invites(rfq_id,agent_id,tag,legs,status,replied_at) VALUES($1,$2,$3,$4,'replied',now()) RETURNING *", [rfqId, party.id, randomTag(), rfq.legs]);
+  const party = await ownParty();
+  return systemInvite(rfqId, party.id, 'own');
 }
 
 const isInternal = async (inviteId) => !!(await one("SELECT 1 FROM rfq_invites i JOIN agents a ON a.id=i.agent_id WHERE i.id=$1 AND a.source='internal'", [inviteId]));
@@ -219,7 +229,8 @@ export async function awardRfq(rfqId, selection, { sendRegrets = true, note } = 
     }
   }
   if (sendRegrets) {
-    const losers = await q("SELECT id FROM rfq_invites WHERE rfq_id=$1 AND NOT awarded AND status IN ('replied','reminded','sent')", [rfqId]);
+    // only agents we actually emailed get a regret note (not rate-card or own-rate entries)
+    const losers = await q("SELECT id FROM rfq_invites WHERE rfq_id=$1 AND NOT awarded AND status IN ('replied','reminded','sent') AND source='email'", [rfqId]);
     for (const l of losers) {
       if (legsByInvite[l.id]) continue;
       if (await isInternal(l.id)) continue;

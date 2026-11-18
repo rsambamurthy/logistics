@@ -18,6 +18,8 @@ export const pool = new pg.Pool({
 
 // numeric -> JS number
 pg.types.setTypeParser(1700, (v) => (v === null ? null : Number(v)));
+// DATE -> 'YYYY-MM-DD' string (avoid timezone shifts)
+pg.types.setTypeParser(1082, (v) => v);
 
 export async function q(text, params = []) {
   const res = await pool.query(text, params);

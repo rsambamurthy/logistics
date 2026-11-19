@@ -31,12 +31,32 @@ export async function testSmtp(mb) {
   return true;
 }
 
+/**
+ * ImapFlow reports server rejections as a bare "Command failed"; the server's own
+ * reason is in responseText / serverResponseCode. Build a message that says what the
+ * mail server actually objected to. Used by the connection test and the poller.
+ */
+export function imapErrorMessage(e) {
+  if (!e) return 'Unknown IMAP error';
+  const parts = [];
+  if (e.authenticationFailed) parts.push('Login rejected by the mail server (check username, password / app password, and that IMAP access is enabled)');
+  const server = [e.serverResponseCode && `[${e.serverResponseCode}]`, e.responseText].filter(Boolean).join(' ');
+  if (server) parts.push(`Server said: ${server}`);
+  if (!parts.length || (e.message && e.message !== 'Command failed')) parts.unshift(e.message || String(e));
+  return parts.join(' — ');
+}
+
 export async function testImap(mb) {
   const client = imapClient(mb);
-  await client.connect();
-  const status = await client.status(mb.imap_folder || 'INBOX', { messages: true, uidNext: true });
-  await client.logout();
-  return status;
+  try {
+    await client.connect();
+    const status = await client.status(mb.imap_folder || 'INBOX', { messages: true, uidNext: true });
+    await client.logout();
+    return status;
+  } catch (e) {
+    try { client.close(); } catch {}
+    throw new Error(imapErrorMessage(e));
+  }
 }
 
 /**
@@ -68,7 +88,7 @@ export async function sendMail(mb, msg, meta = {}) {
 }
 
 function imapClient(mb) {
-  return new ImapFlow({
+  const client = new ImapFlow({
     host: mb.imap_host,
     port: Number(mb.imap_port || 993),
     secure: mb.imap_secure !== false,
@@ -76,6 +96,9 @@ function imapClient(mb) {
     logger: false,
     socketTimeout: 60000,
   });
+  // Without a listener, a socket error emitted outside an awaited call crashes the process.
+  client.on('error', (e) => console.error(`mailbox ${mb.label || mb.id} IMAP connection error:`, imapErrorMessage(e)));
+  return client;
 }
 
 let polling = false;
@@ -117,9 +140,10 @@ export async function pollMailbox(mb) {
     await client.logout();
     await q('UPDATE mailboxes SET last_poll_at=now(), last_poll_error=NULL WHERE id=$1', [mb.id]);
   } catch (e) {
-    await q('UPDATE mailboxes SET last_poll_at=now(), last_poll_error=$1 WHERE id=$2', [String(e.message).slice(0, 500), mb.id]);
-    try { await client.logout(); } catch {}
-    throw e;
+    const msg = imapErrorMessage(e);
+    await q('UPDATE mailboxes SET last_poll_at=now(), last_poll_error=$1 WHERE id=$2', [msg.slice(0, 500), mb.id]);
+    try { await client.logout(); } catch { try { client.close(); } catch {} }
+    throw new Error(msg);
   }
   return count;
 }

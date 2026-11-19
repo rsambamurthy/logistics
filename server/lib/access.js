@@ -25,7 +25,7 @@ export const ROUTES = {
   'POST /users/:id/disable': { perm: 'users.manage' },
   'POST /users/:id/enable': { perm: 'users.manage' },
   'POST /users/:id/resend-invite': { perm: 'users.manage' },
-  'GET /roles': { perm: 'users.manage' },
+  'GET /roles': { perm: ['users.manage', 'settings.manage'] }, // approval levels in Pricing pick a role
   'POST /roles': { perm: 'users.manage' },
   'PUT /roles/:key': { perm: 'users.manage' },
   'DELETE /roles/:key': { perm: 'users.manage' },
@@ -90,7 +90,7 @@ export const ROUTES = {
   'POST /emails/:id/ignore': { perm: 'inbox.view', via: 'email' },
   'GET /attachments/:id': { perm: ['rfqs.view', 'jobs.view', 'inbox.view'], via: 'attachment' },
 
-  'POST /customer-quotes/:id/approval': { perm: ['quotes.prepare', 'quotes.approve'], via: 'customerQuote' },
+  'POST /customer-quotes/:id/approval': { perm: 'rfqs.view', via: 'customerQuote' }, // who may approve is decided by approval levels on roles
   'GET /customer-quotes/:id/pdf': { perm: 'rfqs.view', via: 'customerQuote' },
   'POST /customer-quotes/:id/send': { perm: 'quotes.send', via: 'customerQuote' },
   'POST /customer-quotes/:id/follow-up': { perm: 'quotes.send', via: 'customerQuote' },

@@ -5,7 +5,7 @@ import { layout, sendSystemMail, appUrl } from './systemMail.js';
 
 /** Admin users + billing email of a tenant. */
 async function recipients(t) {
-  const admins = await runAsTenant(t, () => q("SELECT email FROM users WHERE role='admin' AND email_verified_at IS NOT NULL AND disabled_at IS NULL"));
+  const admins = await runAsTenant(t, () => q("SELECT email FROM users u WHERE EXISTS (SELECT 1 FROM user_roles ur WHERE ur.user_id=u.id AND ur.role_key='admin') AND email_verified_at IS NOT NULL AND disabled_at IS NULL"));
   return [...new Set([t.billing_email, ...admins.map((a) => a.email)].filter(Boolean).map((e) => e.toLowerCase()))];
 }
 

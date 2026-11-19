@@ -5,7 +5,7 @@ import { one, q, pq, runAsTenant, currentTenant } from './db.js';
 import crypto from 'node:crypto';
 import { getTenant, tenantForEmail, accessState, assertCanAddUser } from './services/tenants.js';
 import { sendInvite } from './services/accountTokens.js';
-import { permissionsFor, roleExists } from './services/roles.js';
+import { permissionsFor, roleExists, rolesOf, setUserRoles } from './services/roles.js';
 
 const SECRET = () => process.env.APP_SECRET || (process.env.NODE_ENV === 'production' ? null : 'dev-only-secret-change-me');
 const COOKIE = 'aq_session';
@@ -65,7 +65,8 @@ export async function requireAuth(req, res, next) {
       if (!u || u.disabled_at || (u.session_epoch || 0) !== (p.ep || 0)) return res.status(401).json({ error: 'Not signed in' });
       delete u.session_epoch;
       delete u.disabled_at;
-      req.user = { ...u, platform_admin: isPlatformAdmin(u.email), perms: await permissionsFor(u.role) };
+      const roles = await rolesOf(u.id);
+      req.user = { ...u, roles, platform_admin: isPlatformAdmin(u.email), perms: await permissionsFor(roles) };
       req.tenant = tenant;
       req.access = accessState(tenant);
       next();
@@ -96,15 +97,17 @@ export function requireActiveSubscription(req, res, next) {
 }
 
 /** Add a user to the current tenant. They get an invite email to set their own password. */
-export async function createUser({ email, name, role = 'user' }) {
+export async function createUser({ email, name, role, roles }) {
+  const keys = roles?.length ? roles : [role || 'user'];
   const t = currentTenant();
   const mail = String(email || '').toLowerCase().trim();
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(mail)) throw err('Enter a valid email address', 400);
   if ((await pq('SELECT 1 FROM accounts WHERE email=$1', [mail])).length) throw err('This email is already used by another account', 400);
-  if (!(await roleExists(role))) throw err('Unknown role', 400);
+  for (const k of keys) if (!(await roleExists(k))) throw err('Unknown role', 400);
   await assertCanAddUser(t);
   const placeholder = await bcrypt.hash(crypto.randomBytes(24).toString('hex'), 10); // unusable until they set a password
-  const u = await one('INSERT INTO users(email,name,password_hash,role) VALUES($1,$2,$3,$4) RETURNING id,email,name,role', [mail, name || mail, placeholder, role]);
+  const u = await one('INSERT INTO users(email,name,password_hash,role) VALUES($1,$2,$3,$4) RETURNING id,email,name,role', [mail, name || mail, placeholder, keys[0]]);
+  u.roles = await setUserRoles(u.id, keys);
   await pq('INSERT INTO accounts(email,tenant_id,user_id) VALUES($1,$2,$3)', [mail, t.id, u.id]);
   const invite = await sendInvite({ email: mail, tenantId: t.id, userId: u.id, name, company: t.name }).catch((e) => ({ error: e.message }));
   return { ...u, invite_sent: !invite?.error && !invite?.skipped, invite_error: invite?.error || null };
@@ -120,16 +123,19 @@ export async function resendInvite(userId) {
 }
 
 export async function listUsers() {
-  return q('SELECT id,email,name,role,created_at,email_verified_at,disabled_at,disabled_by FROM users ORDER BY disabled_at IS NOT NULL, id');
+  return q(`SELECT id,email,name,role,created_at,email_verified_at,disabled_at,disabled_by,
+    coalesce((SELECT array_agg(role_key ORDER BY role_key) FROM user_roles ur WHERE ur.user_id=users.id), '{}') AS roles
+    FROM users ORDER BY disabled_at IS NOT NULL, id`);
 }
 
-const activeAdmins = async () => (await one("SELECT count(*)::int AS n FROM users WHERE role='admin' AND disabled_at IS NULL")).n;
+const activeAdmins = async () => (await one("SELECT count(*)::int AS n FROM users u JOIN user_roles ur ON ur.user_id=u.id AND ur.role_key='admin' WHERE u.disabled_at IS NULL")).n;
+const isAdmin = async (id) => (await rolesOf(id)).includes('admin');
 
 /**
  * Edit a user: name, role, and (only while the invite is not yet accepted) the email address.
  * An admin cannot demote themselves or leave the company without an active admin.
  */
-export async function updateUser(userId, { name, role, email }, actor) {
+export async function updateUser(userId, { name, role, roles, email }, actor) {
   const t = currentTenant();
   const u = await one('SELECT * FROM users WHERE id=$1', [userId]);
   if (!u) throw err('User not found', 404);
@@ -139,11 +145,17 @@ export async function updateUser(userId, { name, role, email }, actor) {
     if (!n) throw err('Enter a name', 400);
     patch.name = n.slice(0, 120);
   }
-  if (role !== undefined && role !== u.role) {
-    if (!(await roleExists(role))) throw err('Unknown role', 400);
-    if (u.id === actor.id) throw err("You can't change your own role. Ask another admin.", 400);
-    if (u.role === 'admin' && !u.disabled_at && (await activeAdmins()) <= 1) throw err('Keep at least one active admin. Make someone else an admin first.', 400);
-    patch.role = role;
+  const want = roles !== undefined ? [...new Set(roles)].sort() : role !== undefined ? [role] : null;
+  let newRoles = null;
+  if (want) {
+    const have = await rolesOf(u.id);
+    if (want.join() !== [...have].sort().join()) {
+      if (!want.length) throw err('Give the user at least one role', 400);
+      for (const k of want) if (!(await roleExists(k))) throw err('Unknown role', 400);
+      if (u.id === actor.id) throw err("You can't change your own roles. Ask another admin.", 400);
+      if (have.includes('admin') && !want.includes('admin') && !u.disabled_at && (await activeAdmins()) <= 1) throw err('Keep at least one active admin. Make someone else an admin first.', 400);
+      newRoles = want;
+    }
   }
   let newEmail = null;
   if (email !== undefined && String(email).toLowerCase().trim() !== u.email) {
@@ -153,6 +165,7 @@ export async function updateUser(userId, { name, role, email }, actor) {
     if ((await pq('SELECT 1 FROM accounts WHERE email=$1', [newEmail])).length) throw err('This email is already used by another account', 400);
     patch.email = newEmail;
   }
+  if (newRoles) await setUserRoles(userId, newRoles);
   const keys = Object.keys(patch);
   if (!keys.length) return listUsers();
   // a role change takes effect on their next click: the role is read from the database on every request
@@ -172,7 +185,7 @@ export async function setUserDisabled(userId, disabled, actor) {
   if (disabled) {
     if (u.id === actor.id) throw err("You can't switch yourself off.", 400);
     if (u.disabled_at) return listUsers();
-    if (u.role === 'admin' && (await activeAdmins()) <= 1) throw err('Keep at least one active admin.', 400);
+    if ((await isAdmin(u.id)) && (await activeAdmins()) <= 1) throw err('Keep at least one active admin.', 400);
     await q('UPDATE users SET disabled_at=now(), disabled_by=$1, session_epoch=session_epoch+1 WHERE id=$2', [actor.name || actor.email, userId]);
   } else {
     if (!u.disabled_at) return listUsers();

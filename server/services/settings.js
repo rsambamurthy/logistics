@@ -21,6 +21,7 @@ export const DEFAULTS = {
     default_margin_pct: 10,
     default_agent_margin_pct: 5,
     floor_margin_pct: 3,
+    approval_levels: null, // [{ below_pct, role }]; null = one level: below floor_margin_pct → Manager
     default_tax_pct: 18,
     quote_validity_days: 7,
     auto_followup: true,
@@ -102,4 +103,11 @@ export async function getTrackingConfig() {
   const t = await getSetting('tracking');
   const envKey = process.env[`${String(t.provider || '').toUpperCase()}_API_KEY`] || null;
   return { ...t, key: liveSideEffects() ? decrypt(t.key_enc) || envKey : null };
+}
+
+/** Approval levels for low-margin quotes (older settings: one level below the minimum margin, approved by Manager). */
+export async function getApprovalLevels() {
+  const p = await getSetting('pricing');
+  if (Array.isArray(p.approval_levels)) return p.approval_levels.filter((l) => l.role && l.below_pct !== '' && l.below_pct !== null);
+  return [{ below_pct: Number(p.floor_margin_pct || 0), role: 'manager' }];
 }

@@ -12,7 +12,8 @@ import { createRfqFromEmail } from '../services/intake.js';
 import { listCards, getCard, saveCard, copyCard, deleteCard, applyRateCards, templateWorkbook, importRateCards, expiringCount, rememberQuote, saveCards } from '../services/rateCards.js';
 import { attachmentBlocks } from '../services/extract.js';
 import { parseEnquiry, readRateSheet } from '../services/ai.js';
-import { previewCustomerQuote, saveCustomerQuote, renderPdf, emailCustomerQuote, followUpQuote, markLost, LOST_REASONS, decideApproval, acceptQuote, rfqFamily } from '../services/customerQuote.js';
+import { previewCustomerQuote, saveCustomerQuote, renderPdf, emailCustomerQuote, followUpQuote, markLost, LOST_REASONS, decideApproval, acceptQuote, rfqFamily, approvalFor, withApprovalRights, approvableRoles } from '../services/customerQuote.js';
+import { roleExists } from '../services/roles.js';
 import { LANGUAGES } from '../services/i18n.js';
 import { reports } from '../services/reports.js';
 import { signUp, getTenant, accessState, usage, assertCanCreateRfq } from '../services/tenants.js';
@@ -132,6 +133,18 @@ r.get('/tracking/providers', h(async (req, res) => res.json(providerList())));
 r.put('/settings/ai', h(async (req, res) => { await saveAi(req.body); res.json(await getAllPublic()); }));
 r.put('/settings/:key', h(async (req, res) => {
   if (!['company', 'fx', 'pricing'].includes(req.params.key)) return res.status(400).json({ error: 'Unknown setting' });
+  if (req.params.key === 'pricing' && req.body.approval_levels !== undefined) {
+    const levels = Array.isArray(req.body.approval_levels) ? req.body.approval_levels : [];
+    const clean = [];
+    for (const l of levels) {
+      const pct = Number(l.below_pct);
+      if (l.below_pct === '' || l.below_pct === null || !Number.isFinite(pct) || pct < -100 || pct > 100) return res.status(400).json({ error: 'Each approval level needs a margin between -100% and 100%' });
+      if (!l.role || !(await roleExists(l.role))) return res.status(400).json({ error: 'Each approval level needs a role' });
+      clean.push({ below_pct: pct, role: l.role });
+    }
+    if (new Set(clean.map((l) => l.below_pct)).size !== clean.length) return res.status(400).json({ error: 'Two approval levels have the same margin' });
+    req.body.approval_levels = clean.sort((a, b) => b.below_pct - a.below_pct);
+  }
   await setSetting(req.params.key, req.body);
   res.json(await getAllPublic());
 }));
@@ -229,7 +242,8 @@ r.get('/dashboard', h(async (req, res) => {
   const review = await one(`SELECT count(*)::int AS n FROM agent_quotes q JOIN rfqs r ON r.id=q.rfq_id WHERE NOT q.verified AND NOT q.superseded AND NOT q.declined AND r.status IN ('sent','quoting')${andOwn(ownRfqSql('r'))}`);
   const unmatched = await one(`SELECT count(*)::int AS n FROM emails WHERE direction='in' AND invite_id IS NULL AND parse_status='unmatched'`);
   const errors = await one(`SELECT count(*)::int AS n FROM emails WHERE parse_status='error'`);
-  const approvals = await one(`SELECT count(*)::int AS n FROM customer_quotes c JOIN rfqs r ON r.id=c.rfq_id WHERE c.approval_status='pending'${andOwn(ownRfqSql('r'))}`);
+  const mine = approvableRoles(req.user); // null = every level
+  const approvals = mine && !mine.length ? { n: 0 } : await one(`SELECT count(*)::int AS n FROM customer_quotes c JOIN rfqs r ON r.id=c.rfq_id WHERE c.approval_status='pending'${mine ? ` AND coalesce(c.approval_role,'manager') = ANY($1)` : ''}${andOwn(ownRfqSql('r'))}`, mine ? [mine] : []);
   const rc = await expiringCount();
   const p = req.user.perms;
   const jobsOk = p.includes('jobs.view');
@@ -238,7 +252,7 @@ r.get('/dashboard', h(async (req, res) => {
   res.json({
     ...(p.includes('rfqs.view') ? s : {}),
     jobs, cutoffs,
-    approvals_pending: p.includes('quotes.approve') ? approvals.n : null,
+    approvals_pending: approvals.n || null,
     rate_cards_expiring: p.includes('costs.view') ? rc.expiring : null,
     rate_cards_expired: p.includes('costs.view') ? rc.expired : null,
     needs_review: p.includes('costs.view') ? review.n : null,
@@ -266,6 +280,7 @@ r.post('/rfqs/:id/apply-rate-cards', h(async (req, res) => res.json(await applyR
 r.get('/rfqs/:id', h(async (req, res) => {
   const d = await loadRfq(id(req));
   if (!d) return res.status(404).json({ error: 'Not found' });
+  d.customerQuotes = await withApprovalRights(d.customerQuotes, req.user);
   res.json(d);
 }));
 r.put('/rfqs/:id', h(async (req, res) => res.json(await updateRfq(id(req), req.body))));
@@ -360,7 +375,10 @@ r.put('/agent-quotes/:id', h(async (req, res) => {
 }));
 
 // ---------- customer quotes ----------
-r.post('/rfqs/:id/customer-quote/preview', h(async (req, res) => res.json(await previewCustomerQuote(id(req), req.body))));
+r.post('/rfqs/:id/customer-quote/preview', h(async (req, res) => {
+  const snap = await previewCustomerQuote(id(req), req.body);
+  res.json({ ...snap, approval: await approvalFor(snap, req.user) });
+}));
 r.post('/rfqs/:id/customer-quotes', h(async (req, res) => res.json(await saveCustomerQuote(id(req), req.body, req.user))));
 r.post('/customer-quotes/:id/approval', h(async (req, res) => { await decideApproval(id(req), req.user, req.body); res.json({ ok: true }); }));
 r.get('/rfqs/:id/family', h(async (req, res) => {
@@ -392,7 +410,7 @@ r.get('/onboarding', h(async (req, res) => res.json(await onboardingStatus())));
 r.post('/onboarding/dismiss', h(async (req, res) => { await setSetting('onboarding', { dismissed: req.body.dismissed !== false }); res.json(await onboardingStatus()); }));
 r.get('/audit', h(async (req, res) => {
   // admins see everything; others only the history of a specific RFQ
-  if (req.user.role !== 'admin' && !req.query.rfq && !req.query.job) return res.status(403).json({ error: 'Admin only' });
+  if (!req.user.perms.includes('audit.view') && !req.query.rfq && !req.query.job) return res.status(403).json({ error: 'Admin only' });
   res.json(await listAudit(req.query));
 }));
 r.post('/customer-quotes/:id/accept', h(async (req, res) => {

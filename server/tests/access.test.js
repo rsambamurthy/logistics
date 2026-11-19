@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { ROUTES, matchRoute, stripCosts } from '../lib/access.js';
-import { normalisePermissions, SYSTEM_ROLES, PERMISSION_CODES } from '../engines/permissions.js';
+import { normalisePermissions, SYSTEM_ROLES, PERMISSION_CODES, approvalLevelFor, canApproveLevel } from '../engines/permissions.js';
 
 const declared = (file, prefix = '') =>
   [...fs.readFileSync(new URL(file, import.meta.url), 'utf8').matchAll(/\b(?:r|router)\.(get|post|put|delete)\('([^']+)'/g)].map((m) => `${m[1].toUpperCase()} ${prefix}${m[2] === '/' ? '' : m[2]}`);
@@ -27,8 +27,11 @@ test('permissions pull in what they need; built-in roles match the old behaviour
   assert.deepEqual(normalisePermissions(['ratecards.manage', 'nonsense']), ['costs.view', 'ratecards.manage']);
   assert.ok(normalisePermissions(['reports.view']).includes('data.all'));
   const user = SYSTEM_ROLES.find((r) => r.key === 'user').permissions;
-  assert.ok(!user.includes('quotes.approve') && !user.includes('settings.manage') && user.includes('costs.view'));
-  assert.ok(SYSTEM_ROLES.find((r) => r.key === 'manager').permissions.includes('quotes.approve'));
+  assert.ok(!user.includes('settings.manage') && user.includes('costs.view'));
+  assert.equal(approvalLevelFor(5, [{ below_pct: 8, role: 'manager' }, { below_pct: 3, role: 'admin' }]).role, 'manager');
+  assert.equal(approvalLevelFor(2, [{ below_pct: 8, role: 'manager' }, { below_pct: 3, role: 'admin' }]).role, 'admin');
+  assert.equal(approvalLevelFor(9, [{ below_pct: 8, role: 'manager' }]), null);
+  assert.ok(canApproveLevel(['user', 'manager'], 'manager') && canApproveLevel(['admin'], 'manager') && !canApproveLevel(['user'], 'manager'));
   assert.deepEqual(SYSTEM_ROLES.find((r) => r.key === 'admin').permissions, PERMISSION_CODES);
 });
 

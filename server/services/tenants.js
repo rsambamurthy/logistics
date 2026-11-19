@@ -64,6 +64,7 @@ export async function signUp({ company, name, email, password, country }) {
   const user = await runAsTenant(full, async () => {
     const hash = await bcrypt.hash(password, 10);
     const u = await one("INSERT INTO users(email,name,password_hash,role) VALUES($1,$2,$3,'admin') RETURNING id,email,name,role", [mail, name || mail, hash]);
+    await q("INSERT INTO user_roles(user_id, role_key) VALUES($1,'admin') ON CONFLICT DO NOTHING", [u.id]);
     await setSetting('company', { name: company, country: country || 'IN', email: mail });
     if (country === 'HK') {
       await setSetting('fx', { base: 'HKD', rates: { USD: 7.8, INR: 0.093, EUR: 8.4, CNY: 1.08, SGD: 5.8, AED: 2.12, GBP: 9.9 } });

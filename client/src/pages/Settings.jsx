@@ -11,6 +11,8 @@ import { Tenants, Plans } from './Platform.jsx';
 import { api } from '../api.js';
 import { useMeta } from '../components/meta.jsx';
 import { ReadOnly, PageHeader, Card, Table, Button, Modal, FormGrid, Field, Input, Select, Check, Badge, SideMenu, Loading, useLoad, useAction, useToast, fmtDateTime } from '../components/ui.jsx';
+import RolePicker, { RolePills } from '../components/RolePicker.jsx';
+import ApprovalLevels from '../components/ApprovalLevels.jsx';
 
 // Settings holds everything that is not a transaction: contacts, pricing data and system setup.
 const SECTIONS = [
@@ -257,8 +259,9 @@ function LogoField({ value, onChange }) {
 
 function PricingSettings({ data, onSaved }) {
   const meta = useMeta();
-  const [p, setP] = useState(data.pricing);
+  const [p, setP] = useState(() => ({ ...data.pricing, approval_levels: data.pricing.approval_levels ?? [{ below_pct: Number(data.pricing.floor_margin_pct || 0), role: 'manager' }] }));
   const [fx, setFx] = useState(data.fx);
+  const roles = useLoad(() => api.get('/roles').catch(() => []));
   const [busy, run] = useAction();
   const save = () => run('x', async () => { await api.put('/settings/pricing', p); onSaved(await api.put('/settings/fx', fx)); }, 'Saved');
   return (
@@ -266,7 +269,6 @@ function PricingSettings({ data, onSaved }) {
       <FormGrid value={p} onChange={setP} cols={5} fields={[
         { key: 'default_margin_pct', label: 'Default margin % (customers)', type: 'number' },
         { key: 'default_agent_margin_pct', label: 'Default margin % (partner agents)', type: 'number' },
-        { key: 'floor_margin_pct', label: 'Minimum margin % (needs approval below)', type: 'number' },
         { key: 'default_tax_pct', label: 'GST % on INR quotes', type: 'number' },
         { key: 'quote_validity_days', label: 'Customer quote validity (days)', type: 'number' },
         { key: 'auto_followup', label: 'Follow-up', type: 'checkbox', checkLabel: 'Email the requester before a quote expires' },
@@ -275,6 +277,8 @@ function PricingSettings({ data, onSaved }) {
         { key: 'rate_memory_days', label: 'Remembered rates valid for (days, if agent gave no validity)', type: 'number' },
         { key: 'terms', label: 'Default terms on quotations', type: 'textarea', span: 5, rows: 4 },
       ]} />
+      <h4>Approval levels</h4>
+      <ApprovalLevels value={p.approval_levels} roles={roles.data || []} onChange={(v) => setP({ ...p, approval_levels: v })} />
       <h4>Exchange rates</h4>
       <div className="grid g6">
         <Field label="Base currency"><Select options={meta.currencies} value={fx.base} onChange={(e) => setFx({ ...fx, base: e.target.value })} /></Field>
@@ -290,23 +294,21 @@ function PricingSettings({ data, onSaved }) {
 function Users({ admin, me }) {
   const list = useLoad(() => api.get('/users').catch(() => []));
   const roles = useLoad(() => api.get('/roles').catch(() => []));
-  const ROLE_OPTIONS = (roles.data || []).map((r) => ({ value: r.key, label: r.description ? `${r.name} — ${r.description}` : r.name }));
-  const roleName = (k) => roles.data?.find((r) => r.key === k)?.name || k;
   const [f, setF] = useState(null);
   const [edit, setEdit] = useState(null);
   const [off, setOff] = useState(null);
   const [busy, run] = useAction();
   const status = (u) => (u.disabled_at ? <Badge color="gray">switched off</Badge> : u.email_verified_at ? <Badge color="green">active</Badge> : <Badge color="amber">invited</Badge>);
   return (
-    <Card title="Users" actions={admin && <Button onClick={() => setF({ role: 'user' })}>+ Add user</Button>}>
+    <Card title="Users" actions={admin && <Button onClick={() => setF({ roles: ['user'] })}>+ Add user</Button>}>
       <Table rows={list.data} rowClass={(u) => (u.disabled_at ? 'row-muted' : '')} columns={[
         { label: 'Name', render: (u) => <>{u.name}{u.id === me?.id && <span className="small muted"> (you)</span>}</> },
         { key: 'email', label: 'Email' },
-        { label: 'Role', render: (u) => roleName(u.role) },
+        { label: 'Roles', render: (u) => <RolePills keys={u.roles?.length ? u.roles : [u.role]} roles={roles.data || []} /> },
         { label: 'Status', render: (u) => <>{status(u)}{u.disabled_at && <div className="small muted">by {u.disabled_by || 'an admin'}, {fmtDateTime(u.disabled_at)}</div>}</> },
         { label: '', render: (u) => admin && (
           <div className="row gap-sm end wrap">
-            {!u.disabled_at && <Button small variant="ghost" onClick={() => setEdit({ id: u.id, name: u.name, email: u.email, role: u.role, invited: !u.email_verified_at, self: u.id === me?.id })}>Edit</Button>}
+            {!u.disabled_at && <Button small variant="ghost" onClick={() => setEdit({ id: u.id, name: u.name, email: u.email, roles: u.roles?.length ? u.roles : [u.role], invited: !u.email_verified_at, self: u.id === me?.id })}>Edit</Button>}
             {!u.disabled_at && !u.email_verified_at && <Button small variant="ghost" busy={busy === `i${u.id}`} onClick={() => run(`i${u.id}`, () => api.post(`/users/${u.id}/resend-invite`), 'Invite sent again')}>Resend invite</Button>}
             {!u.disabled_at && u.id !== me?.id && <Button small variant="ghost" onClick={() => setOff(u)}>Switch off</Button>}
             {u.disabled_at && <Button small variant="ghost" busy={busy === `on${u.id}`} onClick={() => run(`on${u.id}`, async () => list.setData(await api.post(`/users/${u.id}/enable`)), `${u.name} can sign in again`)}>Switch back on</Button>}
@@ -315,29 +317,30 @@ function Users({ admin, me }) {
       ]} />
       <p className="small muted">Switched-off users can't sign in and don't count towards your plan's user limit. Their RFQs, quotations and history stay as they are.</p>
       {f && (
-        <Modal title="Add user" onClose={() => setF(null)} footer={<Button busy={busy === 'add'} onClick={() => run('add', async () => {
+        <Modal title="Add user" onClose={() => setF(null)} footer={<Button busy={busy === 'add'} disabled={!f.roles?.length} onClick={() => run('add', async () => {
           const u = await api.post('/users', f);
           setF(null);
           list.reload();
           if (u.invite_error) throw new Error(`User added, but the invite email failed: ${u.invite_error}`);
         }, 'User added. They will get an email to set their password.')}>Add & send invite</Button>}>
-          <FormGrid cols={2} value={f} onChange={setF} fields={[{ key: 'name', label: 'Name' }, { key: 'email', label: 'Email', type: 'email' }, { key: 'role', label: 'Role', type: 'select', options: ROLE_OPTIONS }]} />
+          <FormGrid cols={2} value={f} onChange={setF} fields={[{ key: 'name', label: 'Name' }, { key: 'email', label: 'Email', type: 'email' }]} />
+          <Field label="Roles" hint="Give at least one. Someone with several roles gets everything any of them allows."><RolePicker roles={roles.data || []} value={f.roles || []} onChange={(v) => setF({ ...f, roles: v })} /></Field>
           <p className="muted small">They receive an email from Quayly with a link to choose their own password.</p>
         </Modal>
       )}
       {edit && (
-        <Modal title={`Edit ${edit.name}`} onClose={() => setEdit(null)} footer={<Button busy={busy === 'ed'} onClick={() => run('ed', async () => {
+        <Modal title={`Edit ${edit.name}`} onClose={() => setEdit(null)} footer={<Button busy={busy === 'ed'} disabled={!edit.roles?.length} onClick={() => run('ed', async () => {
           const { id, invited, self, ...body } = edit;
           if (!invited) delete body.email;
-          if (self) delete body.role;
+          if (self) delete body.roles;
           list.setData(await api.put(`/users/${id}`, body));
           setEdit(null);
         }, 'Saved')}>Save</Button>}>
           <FormGrid cols={2} value={edit} onChange={setEdit} fields={[
             { key: 'name', label: 'Name' },
             { key: 'email', label: 'Email', type: 'email', disabled: !edit.invited, hint: edit.invited ? 'Changing it sends the invite to the new address.' : 'Fixed once they have signed in. To move someone to a new email, add them again and switch off this user.' },
-            { key: 'role', label: 'Role', type: 'select', options: ROLE_OPTIONS, disabled: edit.self, hint: edit.self ? "You can't change your own role." : 'Takes effect straight away.' },
           ]} />
+          <Field label="Roles" hint={edit.self ? "You can't change your own roles." : 'Takes effect on their next click.'}><RolePicker roles={roles.data || []} value={edit.roles || []} disabled={edit.self} onChange={(v) => setEdit({ ...edit, roles: v })} /></Field>
         </Modal>
       )}
       {off && (

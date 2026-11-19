@@ -3,7 +3,8 @@ import { createPdf, letterhead, kvRows, finish, BLUE } from '../lib/pdf.js';
 import { q, one, currentTenant } from '../db.js';
 import { buildQuoteOptions, diffSnapshots } from '../engines/costing.js';
 import { BASES } from '../engines/charges.js';
-import { getFx, getSetting } from './settings.js';
+import { getFx, getSetting, getApprovalLevels } from './settings.js';
+import { approvalLevelFor, canApproveLevel } from '../engines/permissions.js';
 import { mailRequester } from './requesterMail.js';
 import { customerQuoteEmail, quoteFollowupEmail, routeText } from './templates.js';
 import { t as tr, legLabel, basisLabel } from './i18n.js';
@@ -56,30 +57,51 @@ export async function previewCustomerQuote(rfqId, body) {
 }
 
 const minMargin = (snap) => Math.min(...snap.options.map((o) => o.totals.margin_pct_effective));
-const canApprove = (user) => !!user?.perms?.includes('quotes.approve');
+const roleName = async (key) => (await one('SELECT name FROM roles WHERE key=$1', [key]))?.name || key;
+
+/** Which approval level a quote at this margin needs, and whether this user's roles can approve it. */
+export async function approvalFor(snapshot, user) {
+  const level = approvalLevelFor(minMargin(snapshot), await getApprovalLevels());
+  if (!level) return null;
+  return { role: level.role, role_name: await roleName(level.role), below_pct: Number(level.below_pct), can_approve: canApproveLevel(user?.roles, level.role) };
+}
+
+/** Annotate saved quotes with whether this user may approve the ones waiting. */
+export async function withApprovalRights(quotes, user) {
+  const names = Object.fromEntries((await q('SELECT key, name FROM roles')).map((r) => [r.key, r.name]));
+  return quotes.map((c) => {
+    const role = c.approval_role || 'manager';
+    return { ...c, approval_role: role, approval_role_name: names[role] || role, can_approve: c.approval_status === 'pending' && canApproveLevel(user?.roles, role) };
+  });
+}
+
+/** Roles whose pending approvals this user can act on (admin: all). */
+export const approvableRoles = (user) => (user?.roles || []).includes('admin') ? null : user?.roles || [];
 
 export async function saveCustomerQuote(rfqId, body, user) {
   const pricing = await getSetting('pricing');
   const snapshot = await previewCustomerQuote(rfqId, body);
-  const below = minMargin(snapshot) < Number(pricing.floor_margin_pct);
+  const level = await approvalFor(snapshot, user);
   let approval = 'not_needed';
-  if (below) approval = canApprove(user) && body.approved_below_floor ? 'approved' : 'pending';
+  if (level) approval = level.can_approve && body.approved_below_floor ? 'approved' : 'pending';
   const rfq = await one('SELECT ref, requester_id FROM rfqs WHERE id=$1', [rfqId]);
   const requester = rfq.requester_id ? await one('SELECT quote_language FROM agents WHERE id=$1', [rfq.requester_id]) : null;
   const n = await one('SELECT count(*)::int AS n FROM customer_quotes WHERE rfq_id=$1', [rfqId]);
   const ref = `${rfq.ref.replace('RFQ', 'QT')}${n.n ? `-R${n.n}` : ''}`;
   const validUntil = body.valid_until || new Date(Date.now() + Number(pricing.quote_validity_days || 7) * 864e5).toISOString().slice(0, 10);
   return one(
-    `INSERT INTO customer_quotes(rfq_id,ref,currency,selection,margin_pct,tax_pct,valid_until,terms,snapshot,language,previous_id,approval_status,approval_requested_by,approved_by,created_by)
-     VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING *`,
+    `INSERT INTO customer_quotes(rfq_id,ref,currency,selection,margin_pct,tax_pct,valid_until,terms,snapshot,language,previous_id,approval_status,approval_requested_by,approved_by,created_by,approval_role)
+     VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING *`,
     [rfqId, ref, body.currency, snapshot.options[0].selection, body.margin_pct || 0, body.tax_pct || 0, validUntil, body.terms ?? pricing.terms, snapshot,
-      body.language || requester?.quote_language || 'en', snapshot.previous?.id || null, approval, approval === 'pending' ? user?.id : null, approval === 'approved' ? user?.id : null, user?.id || null]
+      body.language || requester?.quote_language || 'en', snapshot.previous?.id || null, approval, approval === 'pending' ? user?.id : null, approval === 'approved' ? user?.id : null, user?.id || null, level?.role || null]
   );
 }
 
 export async function decideApproval(quoteId, user, { approve, note }) {
-  if (!canApprove(user)) throw err('Your role cannot approve quotations below the minimum margin', 403);
   const cq = await one('SELECT * FROM customer_quotes WHERE id=$1', [quoteId]);
+  if (!cq) throw err('Quote not found', 404);
+  const role = cq.approval_role || 'manager';
+  if (!canApproveLevel(user?.roles, role)) throw err(`Only users with the ${await roleName(role)} role can approve this quote`, 403);
   if (cq.approval_status !== 'pending') throw err('This quote is not waiting for approval');
   await q('UPDATE customer_quotes SET approval_status=$1, approved_by=$2, approval_note=$3 WHERE id=$4', [approve ? 'approved' : 'rejected', user.id, note || null, quoteId]);
   return true;
@@ -228,7 +250,7 @@ async function sendToRequester(quote, build, opts) {
 
 export async function emailCustomerQuote(quoteId, opts = {}) {
   const quote = await one('SELECT * FROM customer_quotes WHERE id=$1', [quoteId]);
-  if (quote.approval_status === 'pending') throw err('This quote is waiting for a manager to approve the margin.');
+  if (quote.approval_status === 'pending') throw err('This quote is waiting for approval of its margin.');
   if (quote.approval_status === 'rejected') throw err('This quote was not approved. Create a revised quote.');
   const pdf = await renderPdf(quoteId);
   const rfq = await sendToRequester(quote, customerQuoteEmail, { ...opts, attachments: [{ filename: `${quote.ref}.pdf`, content: pdf }], kind: 'customer_quote' });

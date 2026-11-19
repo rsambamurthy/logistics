@@ -1,4 +1,6 @@
 // Permission catalog and built-in roles. Pure: shared by the server (enforcement) and the client (what to show).
+// As in VendorGate: roles bundle permissions; a user can hold several roles; approval authority is NOT a
+// permission — approval levels are assigned to roles (Settings > Pricing), so everyone holding that role can approve.
 
 export const PERMISSION_GROUPS = [
   {
@@ -9,7 +11,6 @@ export const PERMISSION_GROUPS = [
       { code: 'quotes.prepare', label: 'Prepare customer quotations', requires: ['rfqs.view', 'costs.view'] },
       { code: 'quotes.send', label: 'Send quotations and follow-ups to customers', requires: ['rfqs.view'] },
       { code: 'quotes.decide', label: 'Mark quotations won or lost, award agents', requires: ['rfqs.view'] },
-      { code: 'quotes.approve', label: 'Approve quotations below the minimum margin', requires: ['rfqs.view', 'costs.view'] },
       { code: 'inbox.view', label: 'Unmatched mail (assign, ignore, create RFQs from emails)', requires: ['rfqs.view'] },
     ],
   },
@@ -54,8 +55,8 @@ const EVERYDAY = ['rfqs.view', 'rfqs.edit', 'quotes.prepare', 'quotes.send', 'qu
 
 /** Built-in roles. They match how Quayly worked before roles could be changed; Admin cannot be edited. */
 export const SYSTEM_ROLES = [
-  { key: 'admin', name: 'Admin', description: 'Everything, including settings, users and billing', permissions: PERMISSION_CODES, locked: true },
-  { key: 'manager', name: 'Manager', description: 'Everyday work plus approving low-margin quotations', permissions: [...EVERYDAY, 'quotes.approve'] },
+  { key: 'admin', name: 'Administrator', description: 'Full access to the workspace', permissions: PERMISSION_CODES, locked: true },
+  { key: 'manager', name: 'Manager', description: 'Everyday work; approves low-margin quotations (approval level)', permissions: EVERYDAY },
   { key: 'user', name: 'User', description: 'Everyday work: RFQs, quotations and jobs', permissions: EVERYDAY },
 ];
 
@@ -75,3 +76,14 @@ export function normalisePermissions(list) {
 }
 
 export const can = (perms, code) => Array.isArray(perms) && perms.includes(code);
+
+/**
+ * Approval levels for low-margin quotations: [{ below_pct, role }]. The deepest level the margin falls under
+ * decides which role must approve (e.g. below 8% → Manager, below 3% → Administrator). null = no approval needed.
+ */
+export function approvalLevelFor(marginPct, levels) {
+  const hit = (levels || []).filter((l) => Number(marginPct) < Number(l.below_pct)).sort((a, b) => Number(a.below_pct) - Number(b.below_pct));
+  return hit[0] || null;
+}
+/** Holding the level's role approves; the Administrator role can approve every level. */
+export const canApproveLevel = (userRoles, role) => !!role && (userRoles || []).some((r) => r === role || r === 'admin');

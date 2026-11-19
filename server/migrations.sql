@@ -292,3 +292,13 @@ CREATE TABLE IF NOT EXISTS roles (
 );
 ALTER TABLE rfqs ADD COLUMN IF NOT EXISTS assigned_to INT;
 ALTER TABLE jobs ADD COLUMN IF NOT EXISTS assigned_to INT;
+
+-- 17. A user can hold several roles (permissions = all of them together), as in VendorGate
+CREATE TABLE IF NOT EXISTS user_roles (
+  user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  role_key TEXT NOT NULL,
+  PRIMARY KEY (user_id, role_key)
+);
+INSERT INTO user_roles(user_id, role_key) SELECT u.id, u.role FROM users u WHERE u.role IS NOT NULL AND NOT EXISTS (SELECT 1 FROM user_roles ur WHERE ur.user_id=u.id);
+-- the approval level a pending quotation waits on (approval authority comes from roles, not permissions)
+ALTER TABLE customer_quotes ADD COLUMN IF NOT EXISTS approval_role TEXT;

@@ -58,7 +58,6 @@ export default function CustomerQuoteTab({ data, selection, reload, goCompare })
   const { rfq, customerQuotes } = data;
   const isAgent = rfq.requester_role === 'agent';
   const can = useCan();
-  const canApprove = can('quotes.approve');
   const settings = useLoad(() => api.get('/settings'));
   const family = useLoad(() => api.get(`/rfqs/${rfq.id}/family`), [rfq.id]);
   const requester = useLoad(() => (rfq.requester_id ? api.get('/agents').then((l) => l.find((c) => c.id === rfq.requester_id)) : null), [rfq.requester_id]);
@@ -99,13 +98,16 @@ export default function CustomerQuoteTab({ data, selection, reload, goCompare })
   }, [body, rfq.id]);
 
   if (!opts || settings.loading) return <Loading />;
-  const floor = settings.data.pricing.floor_margin_pct;
-  const below = preview?.options?.some((o) => o.totals.margin_pct_effective < floor);
+  // approval level this margin falls into, and whether my roles can approve it (decided by the server)
+  const approval = preview?.approval || null;
+  const below = !!approval;
+  const canApprove = !!approval?.can_approve;
+  const floor = approval ? approval.below_pct : -Infinity;
   const save = () => run('save', async () => {
     const r = await api.post(`/rfqs/${rfq.id}/customer-quotes`, { ...body, approved_below_floor: below && canApprove });
     await reload();
     if (r.approval_status === 'pending') return 'pending';
-  }, below && !canApprove ? 'Saved. A manager must approve the margin before it can be sent.' : 'Quotation created');
+  }, below && !canApprove ? `Saved. Someone with the ${approval.role_name} role must approve the margin before it can be sent.` : 'Quotation created');
   const addOption = (rid) => setEditing({ index: options?.length || 0, value: { label: '', rfq_id: rid || rfq.id, selection: {} } });
   const altRfqs = (family.data || []).filter((r) => r.id !== rfq.id);
 
@@ -166,7 +168,7 @@ export default function CustomerQuoteTab({ data, selection, reload, goCompare })
                 </div>
               </div>
             ))}
-            {below && <div className="alert alert-amber">Margin is below the {floor}% minimum. {canApprove ? 'As a manager you can approve it now.' : 'It will be sent to a manager for approval.'}</div>}
+            {below && <div className="alert alert-amber">Margin is below {approval.below_pct}%, so it needs approval by the <b>{approval.role_name}</b> role. {canApprove ? 'You hold that role and can approve it now.' : 'It will be sent to them for approval.'}</div>}
             {preview?.options && <div className="row end"><Button busy={busy === 'save'} onClick={save}>{below ? (canApprove ? 'Approve & create quotation' : 'Request approval') : 'Create quotation'}</Button></div>}
           </div>
         )}
@@ -185,7 +187,7 @@ export default function CustomerQuoteTab({ data, selection, reload, goCompare })
               label: 'Status', render: (r) => (
                 <>
                   <Badge>{r.status}</Badge>{' '}
-                  {r.approval_status === 'pending' && <Badge color="amber">awaiting approval</Badge>}
+                  {r.approval_status === 'pending' && <Badge color="amber">awaiting {r.approval_role_name || 'approval'}</Badge>}
                   {r.approval_status === 'rejected' && <Badge color="red">not approved</Badge>}
                   {r.approval_note && <div className="small muted">{r.approval_note}</div>}
                   {r.accepted_option !== null && r.accepted_option !== undefined && r.snapshot?.options?.length > 1 && <div className="small ok">accepted: {r.snapshot.options[r.accepted_option]?.label}</div>}
@@ -198,7 +200,7 @@ export default function CustomerQuoteTab({ data, selection, reload, goCompare })
               label: '', render: (r) => (
                 <div className="row gap-sm wrap">
                   <a className="btn btn-ghost btn-sm" href={`/api/customer-quotes/${r.id}/pdf`} target="_blank" rel="noreferrer">PDF</a>
-                  {r.approval_status === 'pending' && canApprove && <>
+                  {r.approval_status === 'pending' && r.can_approve && <>
                     <Button small busy={busy === `ap${r.id}`} onClick={() => run(`ap${r.id}`, async () => { await api.post(`/customer-quotes/${r.id}/approval`, { approve: true }); await reload(); }, 'Approved')}>Approve</Button>
                     <Button small variant="ghost" onClick={() => { const note = prompt('Reason for not approving?') ?? ''; run(`rj${r.id}`, async () => { await api.post(`/customer-quotes/${r.id}/approval`, { approve: false, note }); await reload(); }, 'Not approved'); }}>Reject</Button>
                   </>}

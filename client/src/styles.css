@@ -200,8 +200,20 @@ fieldset.readonly { border: 0; padding: 0; margin: 0; min-width: 0; }
 fieldset.readonly .readonly-note { margin: 0 0 10px; }
 fieldset.readonly .btn { opacity: .5; cursor: not-allowed; }
 .owner-picker { display: inline-flex; align-items: center; gap: 6px; } .owner-picker .input { width: auto; padding: 4px 8px; }
-.roles-grid th.center, .roles-grid td.center { text-align: center; }
-.roles-grid th { vertical-align: bottom; min-width: 110px; }
-.roles-grid th:first-child { min-width: 320px; }
-.roles-grid .group-row td { background: var(--bg-soft, #f4f6fa); }
-.roles-grid input[type=checkbox] { width: 17px; height: 17px; }
+.row-between { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+.mono { font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: .92em; }
+.block { display: block; }
+.role-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 14px; margin-bottom: 14px; }
+.role-card { display: flex; flex-direction: column; gap: 6px; }
+.role-card h3 { font-size: 15px; margin: 0; }
+.role-card p { margin: 0; }
+.role-card .row.gap-sm { margin-top: auto; padding-top: 6px; }
+.perm-chips { display: flex; flex-wrap: wrap; gap: 4px; margin: 6px 0; }
+.perm-chip { display: inline-block; font-size: 11.5px; background: var(--blue-l); color: var(--blue); border: 1px solid #cfdcf3; border-radius: 99px; padding: 1px 8px; cursor: default; }
+.perm-group { border: 1px solid var(--line); border-radius: 8px; padding: 10px 14px 14px; display: grid; gap: 14px; margin-top: 8px; }
+.perm-group legend { font-weight: 600; padding: 0 6px; }
+.check-list { display: grid; gap: 8px; }
+.check-item { display: flex; gap: 10px; align-items: flex-start; cursor: pointer; }
+.check-item input { flex: none; width: 16px; height: 16px; margin-top: 3px; }
+.role-pills { display: flex; flex-wrap: wrap; gap: 4px; }
+.level-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }

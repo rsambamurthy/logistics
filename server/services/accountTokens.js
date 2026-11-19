@@ -73,8 +73,8 @@ export async function requestPasswordReset(email) {
   if (!acct) return;
   const tenant = await getTenant(acct.tenant_id, { fresh: true });
   if (!tenant || tenant.status === 'suspended') return;
-  const user = await runAsTenant(tenant, () => one('SELECT id, name FROM users WHERE id=$1', [acct.user_id]));
-  if (!user) return;
+  const user = await runAsTenant(tenant, () => one('SELECT id, name FROM users WHERE id=$1 AND disabled_at IS NULL', [acct.user_id]));
+  if (!user) return; // disabled users get no reset link (same reply as an unknown email)
   const token = await issueToken('reset', { email: mail, tenantId: tenant.id, userId: user.id });
   const link = `${appUrl()}/reset?token=${token}`;
   const m = layout({

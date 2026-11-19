@@ -35,6 +35,8 @@ export async function login(res, email, password) {
   if (tenant.status === 'suspended') throw err('This account is suspended. Contact Integrata support.', 403);
   const u = await runAsTenant(tenant, () => one('SELECT * FROM users WHERE email=lower($1)', [email]));
   if (!u || !(await bcrypt.compare(password || '', u.password_hash))) throw err('Invalid email or password', 401);
+  // checked only after the password, so this message never reveals that an account exists
+  if (u.disabled_at) throw err('Your access has been switched off. Ask your company admin.', 403);
   if (!u.email_verified_at) throw Object.assign(err('Please confirm your email first. Use the link we emailed you.', 403), { code: 'unverified' });
   issue(res, u, tenant.id);
   return { id: u.id, email: u.email, name: u.name, role: u.role };
@@ -58,9 +60,10 @@ export async function requireAuth(req, res, next) {
   if (!tenant || tenant.status === 'suspended') return res.status(401).json({ error: 'Account unavailable' });
   runAsTenant(tenant, async () => {
     try {
-      const u = await one('SELECT id,email,name,role,session_epoch FROM users WHERE id=$1', [p.id]);
-      if (!u || (u.session_epoch || 0) !== (p.ep || 0)) return res.status(401).json({ error: 'Not signed in' });
+      const u = await one('SELECT id,email,name,role,session_epoch,disabled_at FROM users WHERE id=$1', [p.id]);
+      if (!u || u.disabled_at || (u.session_epoch || 0) !== (p.ep || 0)) return res.status(401).json({ error: 'Not signed in' });
       delete u.session_epoch;
+      delete u.disabled_at;
       req.user = { ...u, platform_admin: isPlatformAdmin(u.email) };
       req.tenant = tenant;
       req.access = accessState(tenant);
@@ -115,7 +118,67 @@ export async function resendInvite(userId) {
 }
 
 export async function listUsers() {
-  return q('SELECT id,email,name,role,created_at,email_verified_at FROM users ORDER BY id');
+  return q('SELECT id,email,name,role,created_at,email_verified_at,disabled_at,disabled_by FROM users ORDER BY disabled_at IS NOT NULL, id');
+}
+
+const ROLES = ['user', 'manager', 'admin'];
+const activeAdmins = async () => (await one("SELECT count(*)::int AS n FROM users WHERE role='admin' AND disabled_at IS NULL")).n;
+
+/**
+ * Edit a user: name, role, and (only while the invite is not yet accepted) the email address.
+ * An admin cannot demote themselves or leave the company without an active admin.
+ */
+export async function updateUser(userId, { name, role, email }, actor) {
+  const t = currentTenant();
+  const u = await one('SELECT * FROM users WHERE id=$1', [userId]);
+  if (!u) throw err('User not found', 404);
+  const patch = {};
+  if (name !== undefined) {
+    const n = String(name).trim();
+    if (!n) throw err('Enter a name', 400);
+    patch.name = n.slice(0, 120);
+  }
+  if (role !== undefined && role !== u.role) {
+    if (!ROLES.includes(role)) throw err('Unknown role', 400);
+    if (u.id === actor.id) throw err("You can't change your own role. Ask another admin.", 400);
+    if (u.role === 'admin' && !u.disabled_at && (await activeAdmins()) <= 1) throw err('Keep at least one active admin. Make someone else an admin first.', 400);
+    patch.role = role;
+  }
+  let newEmail = null;
+  if (email !== undefined && String(email).toLowerCase().trim() !== u.email) {
+    if (u.email_verified_at) throw err('The email of a user who has already signed in cannot be changed. Add them again with the new email and switch off the old user.', 400);
+    newEmail = String(email).toLowerCase().trim();
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(newEmail)) throw err('Enter a valid email address', 400);
+    if ((await pq('SELECT 1 FROM accounts WHERE email=$1', [newEmail])).length) throw err('This email is already used by another account', 400);
+    patch.email = newEmail;
+  }
+  const keys = Object.keys(patch);
+  if (!keys.length) return listUsers();
+  // a role change takes effect on their next click: the role is read from the database on every request
+  await q(`UPDATE users SET ${keys.map((k, i) => `${k}=$${i + 1}`).join(', ')} WHERE id=$${keys.length + 1}`, [...keys.map((k) => patch[k]), userId]);
+  if (newEmail) {
+    await pq('UPDATE accounts SET email=$1 WHERE tenant_id=$2 AND user_id=$3', [newEmail, t.id, userId]);
+    await sendInvite({ email: newEmail, tenantId: t.id, userId, name: patch.name || u.name, company: t.name }).catch((e) => console.error('invite', e.message));
+  }
+  return listUsers();
+}
+
+/** Switch a user off: signed out everywhere at once, cannot sign in or reset a password; their work stays. */
+export async function setUserDisabled(userId, disabled, actor) {
+  const t = currentTenant();
+  const u = await one('SELECT * FROM users WHERE id=$1', [userId]);
+  if (!u) throw err('User not found', 404);
+  if (disabled) {
+    if (u.id === actor.id) throw err("You can't switch yourself off.", 400);
+    if (u.disabled_at) return listUsers();
+    if (u.role === 'admin' && (await activeAdmins()) <= 1) throw err('Keep at least one active admin.', 400);
+    await q('UPDATE users SET disabled_at=now(), disabled_by=$1, session_epoch=session_epoch+1 WHERE id=$2', [actor.name || actor.email, userId]);
+  } else {
+    if (!u.disabled_at) return listUsers();
+    await assertCanAddUser(t); // a switched-on user takes a seat again
+    await q('UPDATE users SET disabled_at=NULL, disabled_by=NULL WHERE id=$1', [userId]);
+  }
+  return listUsers();
 }
 
 export { decode };

@@ -49,7 +49,7 @@ export default function Settings({ user }) {
         {current.key === 'tenants' && user.platform_admin && <Tenants />}
         {current.key === 'plans' && user.platform_admin && <Plans />}
         {current.key === 'customers' && <Customers />}
-        {current.key === 'users' && <><PageHeader title="Users" /><Users admin={admin} /></>}
+        {current.key === 'users' && <><PageHeader title="Users" /><Users admin={admin} me={user} /></>}
         {['ai', 'tracking', 'company', 'pricing'].includes(current.key) && (!s.data ? <Loading /> : (
           <>
             <PageHeader title={current.label} sub={current.hint} />
@@ -275,19 +275,37 @@ function PricingSettings({ data, onSaved }) {
   );
 }
 
-function Users({ admin }) {
+const ROLE_OPTIONS = [
+  { value: 'user', label: 'User' },
+  { value: 'manager', label: 'Manager (approves low-margin quotes)' },
+  { value: 'admin', label: 'Admin (everything incl. settings)' },
+];
+const roleName = (r) => ({ user: 'User', manager: 'Manager', admin: 'Admin' }[r] || r);
+
+function Users({ admin, me }) {
   const list = useLoad(() => api.get('/users').catch(() => []));
   const [f, setF] = useState(null);
+  const [edit, setEdit] = useState(null);
+  const [off, setOff] = useState(null);
   const [busy, run] = useAction();
+  const status = (u) => (u.disabled_at ? <Badge color="gray">switched off</Badge> : u.email_verified_at ? <Badge color="green">active</Badge> : <Badge color="amber">invited</Badge>);
   return (
     <Card title="Users" actions={admin && <Button onClick={() => setF({ role: 'user' })}>+ Add user</Button>}>
-      <Table rows={list.data} columns={[
-        { key: 'name', label: 'Name' },
+      <Table rows={list.data} rowClass={(u) => (u.disabled_at ? 'row-muted' : '')} columns={[
+        { label: 'Name', render: (u) => <>{u.name}{u.id === me?.id && <span className="small muted"> (you)</span>}</> },
         { key: 'email', label: 'Email' },
-        { key: 'role', label: 'Role' },
-        { label: 'Status', render: (u) => (u.email_verified_at ? <Badge color="green">active</Badge> : <Badge color="amber">invited</Badge>) },
-        { label: '', render: (u) => (admin && !u.email_verified_at ? <Button small variant="ghost" busy={busy === `i${u.id}`} onClick={() => run(`i${u.id}`, () => api.post(`/users/${u.id}/resend-invite`), 'Invite sent again')}>Resend invite</Button> : null) },
+        { label: 'Role', render: (u) => roleName(u.role) },
+        { label: 'Status', render: (u) => <>{status(u)}{u.disabled_at && <div className="small muted">by {u.disabled_by || 'an admin'}, {fmtDateTime(u.disabled_at)}</div>}</> },
+        { label: '', render: (u) => admin && (
+          <div className="row gap-sm end wrap">
+            {!u.disabled_at && <Button small variant="ghost" onClick={() => setEdit({ id: u.id, name: u.name, email: u.email, role: u.role, invited: !u.email_verified_at, self: u.id === me?.id })}>Edit</Button>}
+            {!u.disabled_at && !u.email_verified_at && <Button small variant="ghost" busy={busy === `i${u.id}`} onClick={() => run(`i${u.id}`, () => api.post(`/users/${u.id}/resend-invite`), 'Invite sent again')}>Resend invite</Button>}
+            {!u.disabled_at && u.id !== me?.id && <Button small variant="ghost" onClick={() => setOff(u)}>Switch off</Button>}
+            {u.disabled_at && <Button small variant="ghost" busy={busy === `on${u.id}`} onClick={() => run(`on${u.id}`, async () => list.setData(await api.post(`/users/${u.id}/enable`)), `${u.name} can sign in again`)}>Switch back on</Button>}
+          </div>
+        ) },
       ]} />
+      <p className="small muted">Switched-off users can't sign in and don't count towards your plan's user limit. Their RFQs, quotations and history stay as they are.</p>
       {f && (
         <Modal title="Add user" onClose={() => setF(null)} footer={<Button busy={busy === 'add'} onClick={() => run('add', async () => {
           const u = await api.post('/users', f);
@@ -295,8 +313,28 @@ function Users({ admin }) {
           list.reload();
           if (u.invite_error) throw new Error(`User added, but the invite email failed: ${u.invite_error}`);
         }, 'User added. They will get an email to set their password.')}>Add & send invite</Button>}>
-          <FormGrid cols={2} value={f} onChange={setF} fields={[{ key: 'name', label: 'Name' }, { key: 'email', label: 'Email', type: 'email' }, { key: 'role', label: 'Role', type: 'select', options: [{ value: 'user', label: 'User' }, { value: 'manager', label: 'Manager (approves low-margin quotes)' }, { value: 'admin', label: 'Admin (everything incl. settings)' }] }]} />
+          <FormGrid cols={2} value={f} onChange={setF} fields={[{ key: 'name', label: 'Name' }, { key: 'email', label: 'Email', type: 'email' }, { key: 'role', label: 'Role', type: 'select', options: ROLE_OPTIONS }]} />
           <p className="muted small">They receive an email from Quayly with a link to choose their own password.</p>
+        </Modal>
+      )}
+      {edit && (
+        <Modal title={`Edit ${edit.name}`} onClose={() => setEdit(null)} footer={<Button busy={busy === 'ed'} onClick={() => run('ed', async () => {
+          const { id, invited, self, ...body } = edit;
+          if (!invited) delete body.email;
+          if (self) delete body.role;
+          list.setData(await api.put(`/users/${id}`, body));
+          setEdit(null);
+        }, 'Saved')}>Save</Button>}>
+          <FormGrid cols={2} value={edit} onChange={setEdit} fields={[
+            { key: 'name', label: 'Name' },
+            { key: 'email', label: 'Email', type: 'email', disabled: !edit.invited, hint: edit.invited ? 'Changing it sends the invite to the new address.' : 'Fixed once they have signed in. To move someone to a new email, add them again and switch off this user.' },
+            { key: 'role', label: 'Role', type: 'select', options: ROLE_OPTIONS, disabled: edit.self, hint: edit.self ? "You can't change your own role." : 'Takes effect straight away.' },
+          ]} />
+        </Modal>
+      )}
+      {off && (
+        <Modal title={`Switch off ${off.name}?`} onClose={() => setOff(null)} footer={<Button busy={busy === 'off'} onClick={() => run('off', async () => { list.setData(await api.post(`/users/${off.id}/disable`)); setOff(null); }, `${off.name} is switched off`)}>Switch off</Button>}>
+          <p>{off.name} ({off.email}) is signed out straight away and can't sign in or reset their password. Their work stays, and you can switch them back on later.</p>
         </Modal>
       )}
     </Card>

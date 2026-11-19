@@ -192,3 +192,6 @@ textarea.input { resize: vertical; }
 .center { text-align: center; }
 @media (max-width: 640px) { .track-events li { grid-template-columns: 1fr; gap: 2px; } }
 .g3 { grid-template-columns: repeat(3, 1fr); }
+
+.table tr.row-muted td { color: var(--muted); }
+.table tr.row-muted td .badge { opacity: .8; }

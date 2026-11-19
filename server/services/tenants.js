@@ -83,7 +83,7 @@ export async function tenantForEmail(email) {
 
 /** Usage against plan limits for the current tenant. */
 export async function usage(t) {
-  const users = (await one('SELECT count(*)::int AS n FROM users')).n;
+  const users = (await one('SELECT count(*)::int AS n FROM users WHERE disabled_at IS NULL')).n;
   const rfqs = (await one("SELECT count(*)::int AS n FROM rfqs WHERE created_at >= date_trunc('month', now())")).n;
   return { users, rfqs_this_month: rfqs, max_users: t.max_users, max_rfqs_month: t.max_rfqs_month };
 }

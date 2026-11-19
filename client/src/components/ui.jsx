@@ -74,7 +74,7 @@ export function Check({ label, checked, onChange }) {
   );
 }
 
-/** Generic form bound to an object: fields = [{ key, label, type, options, span, hint }] */
+/** Generic form bound to an object: fields = [{ key, label, type, options, span, hint, disabled }] */
 export function FormGrid({ fields, value, onChange, cols = 3 }) {
   const set = (k, v) => onChange({ ...value, [k]: v });
   return (
@@ -82,13 +82,13 @@ export function FormGrid({ fields, value, onChange, cols = 3 }) {
       {fields.map((f) => (
         <Field key={f.key} label={f.label} hint={f.hint} span={f.span}>
           {f.type === 'select' ? (
-            <Select options={f.options} value={value[f.key]} placeholder={f.placeholder ?? ''} onChange={(e) => set(f.key, e.target.value)} />
+            <Select options={f.options} value={value[f.key]} placeholder={f.placeholder ?? ''} disabled={f.disabled} onChange={(e) => set(f.key, e.target.value)} />
           ) : f.type === 'textarea' ? (
-            <Textarea rows={f.rows} value={value[f.key]} onChange={(e) => set(f.key, e.target.value)} placeholder={f.placeholder} />
+            <Textarea rows={f.rows} value={value[f.key]} disabled={f.disabled} onChange={(e) => set(f.key, e.target.value)} placeholder={f.placeholder} />
           ) : f.type === 'checkbox' ? (
             <Check label={f.checkLabel || ''} checked={value[f.key]} onChange={(v) => set(f.key, v)} />
           ) : (
-            <Input type={f.type || 'text'} value={value[f.key]} placeholder={f.placeholder} onChange={(e) => set(f.key, f.type === 'number' ? (e.target.value === '' ? '' : Number(e.target.value)) : e.target.value)} />
+            <Input type={f.type || 'text'} value={value[f.key]} placeholder={f.placeholder} disabled={f.disabled} onChange={(e) => set(f.key, f.type === 'number' ? (e.target.value === '' ? '' : Number(e.target.value)) : e.target.value)} />
           )}
         </Field>
       ))}
@@ -96,7 +96,7 @@ export function FormGrid({ fields, value, onChange, cols = 3 }) {
   );
 }
 
-export function Table({ columns, rows, empty = 'Nothing here yet', onRowClick, rowKey = 'id' }) {
+export function Table({ columns, rows, empty = 'Nothing here yet', onRowClick, rowKey = 'id', rowClass }) {
   if (!rows?.length) return <div className="empty">{empty}</div>;
   return (
     <div className="table-wrap">
@@ -106,7 +106,7 @@ export function Table({ columns, rows, empty = 'Nothing here yet', onRowClick, r
         </thead>
         <tbody>
           {rows.map((r, i) => (
-            <tr key={r[rowKey] ?? i} onClick={onRowClick ? () => onRowClick(r) : undefined} className={onRowClick ? 'clickable' : ''}>
+            <tr key={r[rowKey] ?? i} onClick={onRowClick ? () => onRowClick(r) : undefined} className={[onRowClick ? 'clickable' : '', rowClass ? rowClass(r) : ''].filter(Boolean).join(' ')}>
               {columns.map((c) => <td key={c.key || c.label} style={{ textAlign: c.align }}>{c.render ? c.render(r) : r[c.key]}</td>)}
             </tr>
           ))}

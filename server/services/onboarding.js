@@ -11,7 +11,7 @@ export async function onboardingStatus() {
   const agents = await n('SELECT count(*)::int AS n FROM agents WHERE is_agent AND active');
   const customers = await n('SELECT count(*)::int AS n FROM agents WHERE is_customer AND active');
   const cards = await n('SELECT count(*)::int AS n FROM rate_cards WHERE active');
-  const users = await n('SELECT count(*)::int AS n FROM users');
+  const users = await n('SELECT count(*)::int AS n FROM users WHERE disabled_at IS NULL');
   const rfqSent = await n("SELECT count(*)::int AS n FROM rfq_invites WHERE source='email' AND sent_at IS NOT NULL");
   const quoteSent = await n('SELECT count(*)::int AS n FROM customer_quotes WHERE sent_at IS NOT NULL');
   const ai = !!(await getAiKey());

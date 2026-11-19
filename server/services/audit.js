@@ -24,6 +24,9 @@ const rfqOf = {
 
 // "METHOD /path" (as declared in the routers) -> how to describe it.
 const P = (id) => Number(id) || null;
+// the user a /users/:id change was about, from the list the route returns
+const userOf = (r, b) => (Array.isArray(b) ? b.find((u) => String(u.id) === String(r.params?.id))?.email : null);
+
 const ACTIONS = {
   'POST /rfqs': { action: 'Created RFQ', entity: 'rfq', rfq: (r, b) => b?.id, summary: (r, b) => b?.ref },
   'PUT /rfqs/:id': { action: 'Edited RFQ', entity: 'rfq', rfq: (r) => P(r.params.id) },
@@ -93,6 +96,9 @@ const ACTIONS = {
   'POST /mailboxes': { action: 'Added RFQ mailbox', entity: 'mailbox', summary: (r, b) => b?.from_email },
   'PUT /mailboxes/:id': { action: 'Edited RFQ mailbox', entity: 'mailbox', summary: (r, b) => b?.from_email },
   'DELETE /mailboxes/:id': { action: 'Deactivated RFQ mailbox', entity: 'mailbox' },
+  'PUT /users/:id': { action: 'Edited user', entity: 'user', summary: (r, b) => [userOf(r, b), Object.entries(r.body || {}).filter(([k]) => ['name', 'role', 'email'].includes(k)).map(([k, v]) => `${k}: ${v}`).join(', ')].filter(Boolean).join(' · ') },
+  'POST /users/:id/disable': { action: 'Switched off user', entity: 'user', summary: (r, b) => userOf(r, b) },
+  'POST /users/:id/enable': { action: 'Switched user back on', entity: 'user', summary: (r, b) => userOf(r, b) },
   'POST /users': { action: 'Added user', entity: 'user', summary: (r, b) => b && `${b.email} (${b.role})` },
   'POST /users/:id/resend-invite': { action: 'Resent user invite', entity: 'user' },
   'POST /billing/subscribe': { action: 'Chose subscription plan', entity: 'subscription', summary: (r) => r.body.plan_code },

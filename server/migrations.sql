@@ -276,3 +276,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS tracking_events_once ON tracking_events(tracki
 
 -- 14. Sign-out ends the session: tokens carry the user's session epoch
 ALTER TABLE users ADD COLUMN IF NOT EXISTS session_epoch INT NOT NULL DEFAULT 0;
+
+-- 15. Admins can disable users (kept for history, cannot sign in, do not count as a seat)
+ALTER TABLE users ADD COLUMN IF NOT EXISTS disabled_at TIMESTAMPTZ;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS disabled_by TEXT;

@@ -1,7 +1,7 @@
 import express from 'express';
 import multer from 'multer';
 import { q, one, runAsTenant } from '../db.js';
-import { requireAuth, requireAdmin, requireActiveSubscription, createUser, resendInvite, login, logout, issue, listUsers, decode } from '../auth.js';
+import { requireAuth, requireAdmin, requireActiveSubscription, createUser, resendInvite, login, logout, issue, listUsers, updateUser, setUserDisabled, decode } from '../auth.js';
 import { LEGS, BASES, CHARGE_CODES, MODES, INCOTERMS, CURRENCIES, CONTAINER_TYPES, LEG_CODES } from '../engines/charges.js';
 import { getAllPublic, setSetting, saveAi, saveTracking } from '../services/settings.js';
 import { encrypt } from '../lib/crypto.js';
@@ -111,6 +111,9 @@ r.get('/meta', (req, res) => res.json({ languages: LANGUAGES, roles: ['user', 'm
 // ---------- users ----------
 r.get('/users', requireAdmin, h(async (req, res) => res.json(await listUsers())));
 r.post('/users', requireAdmin, h(async (req, res) => res.json(await createUser(req.body))));
+r.put('/users/:id', requireAdmin, h(async (req, res) => res.json(await updateUser(id(req), req.body, req.user))));
+r.post('/users/:id/disable', requireAdmin, h(async (req, res) => res.json(await setUserDisabled(id(req), true, req.user))));
+r.post('/users/:id/enable', requireAdmin, h(async (req, res) => res.json(await setUserDisabled(id(req), false, req.user))));
 r.post('/users/:id/resend-invite', requireAdmin, h(async (req, res) => { await resendInvite(id(req)); res.json({ ok: true }); }));
 
 // ---------- settings ----------

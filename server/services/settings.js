@@ -1,3 +1,4 @@
+import { liveSideEffects } from '../lib/runtime.js';
 import { q, one, currentTenant } from '../db.js';
 import { encrypt, decrypt } from '../lib/crypto.js';
 
@@ -76,6 +77,7 @@ export async function saveAi({ api_key, ...rest }) {
 
 /** Tenant's own key first; otherwise the platform key if the tenant's plan includes AI. */
 export async function getAiKey() {
+  if (!liveSideEffects()) return null; // test copies never spend AI credits
   const ai = await getSetting('ai');
   const own = decrypt(ai.key_enc);
   if (own) return own;
@@ -99,5 +101,5 @@ export async function saveTracking({ api_key, ...rest }) {
 export async function getTrackingConfig() {
   const t = await getSetting('tracking');
   const envKey = process.env[`${String(t.provider || '').toUpperCase()}_API_KEY`] || null;
-  return { ...t, key: decrypt(t.key_enc) || envKey };
+  return { ...t, key: liveSideEffects() ? decrypt(t.key_enc) || envKey : null };
 }

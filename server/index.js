@@ -12,6 +12,7 @@ import { quoteHousekeeping } from './services/customerQuote.js';
 import { PRODUCT } from './lib/brand.js';
 import { lifecycleSweep } from './services/lifecycle.js';
 import { trackingSweep } from './services/tracking.js';
+import { liveSideEffects } from './lib/runtime.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -42,6 +43,10 @@ const port = Number(process.env.PORT || 3000);
 (async () => {
   await migrate();
   app.listen(port, () => console.log(`${PRODUCT.name} listening on ${port}`));
+  if (!liveSideEffects()) {
+    console.log('Test copy: background jobs, mailbox polling and outgoing email are switched off (SIDE_EFFECTS=on to enable).');
+    return;
+  }
   // background work runs once per tenant, inside that tenant's context
   let busy = false;
   setInterval(async () => {

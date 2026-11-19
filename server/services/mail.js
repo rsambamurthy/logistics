@@ -1,4 +1,5 @@
 // Mailbox access: sending via SMTP and receiving via IMAP, per configurable mailbox.
+import { liveSideEffects } from '../lib/runtime.js';
 import nodemailer from 'nodemailer';
 import { ImapFlow } from 'imapflow';
 import { simpleParser } from 'mailparser';
@@ -45,7 +46,8 @@ export async function testImap(mb) {
 export async function sendMail(mb, msg, meta = {}) {
   if (!canSend(mb)) throw new Error(`Mailbox "${mb?.label || 'none'}" has no SMTP settings. Configure it in Settings → Mailboxes.`);
   const cc = [msg.cc, meta.kind && meta.kind !== 'customer_quote' ? mb.cc : null].filter(Boolean).join(', ') || undefined;
-  const info = await transport(mb).sendMail({
+  // test copies record the email but never send it
+  const info = !liveSideEffects() ? { messageId: `<test-${Date.now()}-${Math.random().toString(36).slice(2)}@quayly.test>` } : await transport(mb).sendMail({
     from: { name: mb.from_name, address: mb.from_email },
     replyTo: mb.reply_to || undefined,
     to: msg.to,

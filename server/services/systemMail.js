@@ -1,4 +1,5 @@
 // System emails (account emails, not tenant RFQ mail), sent through Resend.
+import { liveSideEffects } from '../lib/runtime.js';
 import { PRODUCT } from '../lib/brand.js';
 
 const FROM = () => process.env.SYSTEM_MAIL_FROM || 'Quayly <no-reply@integratatech.ai>';
@@ -24,7 +25,7 @@ export function layout({ title, intro, button, link, outro }) {
 }
 
 export async function sendSystemMail({ to, subject, html, text }) {
-  const key = process.env.RESEND_API_KEY;
+  const key = liveSideEffects() ? process.env.RESEND_API_KEY : null;
   if (!key) {
     // development fallback: show the link in the server log instead of sending
     console.log(`[system mail not sent: RESEND_API_KEY missing] to=${to} subject="${subject}"\n${text}`);

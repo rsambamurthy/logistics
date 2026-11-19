@@ -10,7 +10,7 @@ export default function Jobs() {
   const nav = useNavigate();
   const [status, setStatus] = useState('active');
   const [search, setSearch] = useState('');
-  const list = useLoad(() => api.get(`/jobs?status=${status}&search=${encodeURIComponent(search)}`), [status, search]);
+  const list = useLoad(() => api.get(`/jobs?status=${status}&search=${encodeURIComponent(search)}`), [status, search], { refresh: 60000 });
   const cut = useLoad(() => api.get('/jobs/cutoffs?hours=72'));
   return (
     <>

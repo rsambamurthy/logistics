@@ -187,18 +187,30 @@ export function ToastProvider({ children }) {
 export const useToast = () => useContext(ToastCtx);
 
 /** Load data with loading/error state and a reload function. */
-export function useLoad(fn, deps = []) {
+/**
+ * Load data for a page. `refresh` (ms) reloads quietly in the background while the tab is visible,
+ * so new mail, replies and status changes appear without clicking anything.
+ */
+export function useLoad(fn, deps = [], { refresh } = {}) {
   const [state, setState] = useState({ data: null, loading: true, error: null });
-  const load = useCallback(async () => {
-    setState((s) => ({ ...s, loading: true }));
+  const load = useCallback(async (quiet) => {
+    if (quiet !== true) setState((s) => ({ ...s, loading: true }));
     try {
       setState({ data: await fn(), loading: false, error: null });
     } catch (e) {
+      if (quiet === true) return; // a failed background refresh keeps what is on screen
       setState({ data: null, loading: false, error: e.message });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, deps);
   useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    if (!refresh) return undefined;
+    const tick = () => { if (document.visibilityState === 'visible') load(true); };
+    const t = setInterval(tick, refresh);
+    document.addEventListener('visibilitychange', tick);
+    return () => { clearInterval(t); document.removeEventListener('visibilitychange', tick); };
+  }, [load, refresh]);
   return { ...state, reload: load, setData: (d) => setState((s) => ({ ...s, data: typeof d === 'function' ? d(s.data) : d })) };
 }
 

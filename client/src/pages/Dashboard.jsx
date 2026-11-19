@@ -9,9 +9,9 @@ import { CutoffList } from '../components/jobs.jsx';
 
 export default function Dashboard() {
   const nav = useNavigate();
-  const stats = useLoad(() => api.get('/dashboard'));
+  const stats = useLoad(() => api.get('/dashboard'), [], { refresh: 30000 });
   const can = useCan();
-  const list = useLoad(() => (can('rfqs.view') ? api.get('/rfqs') : Promise.resolve([])));
+  const list = useLoad(() => (can('rfqs.view') ? api.get('/rfqs') : Promise.resolve([])), [], { refresh: 30000 });
   const [filter, setFilter] = useState('');
   const rows = (list.data || []).filter((r) => !filter || r.status === filter);
   return (

@@ -37,14 +37,10 @@ function AlternativeButton({ rfq, linked }) {
 export default function RfqDetail() {
   const { id } = useParams();
   const can = useCan();
-  const d = useLoad(() => api.get(`/rfqs/${id}`), [id]);
+  // refreshes quietly while waiting for agent replies and AI reading
+  const d = useLoad(() => api.get(`/rfqs/${id}`), [id], { refresh: 30000 });
   const [tab, setTab] = useState('agents');
   const [selection, setSelection] = useState({});
-  // refresh while waiting for replies / AI
-  useEffect(() => {
-    const t = setInterval(() => { if (document.visibilityState === 'visible') d.reload(); }, 30000);
-    return () => clearInterval(t);
-  }, [d.reload]);
   if (d.loading && !d.data) return <Loading />;
   if (d.error) return <ErrorBox error={d.error} />;
   const { rfq, invites, quotes, emails, customerQuotes } = d.data;

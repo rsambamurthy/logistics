@@ -4,7 +4,7 @@ import { PageHeader, Card, Table, Button, Modal, Field, Select, Loading, useLoad
 import { EmailView } from './RfqDetail.jsx';
 
 export default function Inbox() {
-  const list = useLoad(() => api.get('/inbox/unmatched'));
+  const list = useLoad(() => api.get('/inbox/unmatched'), [], { refresh: 30000 });
   const [open, setOpen] = useState(null);
   return (
     <>

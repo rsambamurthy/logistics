@@ -47,7 +47,10 @@ const id = (req) => {
 // ---------- session & sign-up ----------
 r.get('/session', h(async (req, res) => {
   if (!decode(req)) return res.json({});
-  requireAuth(req, res, () => res.json({ user: req.user, tenant: tenantView(req.tenant), access: req.access }));
+  requireAuth(req, res, async () => {
+    const names = await q('SELECT name FROM roles WHERE key = ANY($1) ORDER BY name', [req.user.roles || []]).catch(() => []);
+    res.json({ user: { ...req.user, role_names: names.map((r) => r.name) }, tenant: tenantView(req.tenant), access: req.access });
+  });
 }));
 const authLimit = rateLimit({ max: 10, key: (req) => `${req.ip}|${req.path}|${String(req.body?.email || req.body?.token || '').toLowerCase()}` });
 // one address trying many accounts, and one account tried from many addresses
@@ -332,6 +335,7 @@ r.post('/invites/:id/manual-reply', upload.array('files'), h(async (req, res) =>
 }));
 
 // ---------- emails ----------
+r.get('/inbox/count', h(async (req, res) => res.json(await one(`SELECT count(*)::int AS n FROM emails WHERE direction='in' AND invite_id IS NULL AND rfq_id IS NULL AND coalesce(parse_status,'') <> 'ignored'`))));
 r.get('/inbox/unmatched', h(async (req, res) => res.json(await q(`SELECT id,from_addr,subject,at,left(body_text,400) AS preview FROM emails WHERE direction='in' AND invite_id IS NULL AND rfq_id IS NULL AND coalesce(parse_status,'') <> 'ignored' ORDER BY at DESC LIMIT 200`))));
 r.get('/emails/:id', h(async (req, res) => res.json(await one('SELECT * FROM emails WHERE id=$1', [id(req)]))));
 r.post('/emails/:id/assign', h(async (req, res) => res.json(await assignEmail(id(req), req.body.invite_id))));

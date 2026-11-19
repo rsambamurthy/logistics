@@ -1,12 +1,14 @@
 import React, { useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { BrowserRouter, Routes, Route, NavLink, Navigate, Link } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, Link, useLocation } from 'react-router-dom';
 import './styles.css';
 import { api } from './api.js';
 import { ToastProvider, Loading } from './components/ui.jsx';
 import { MetaProvider } from './components/meta.jsx';
 import { SessionCtx } from './components/session.js';
-import { Brand } from './components/Brand.jsx';
+import { LogoMark, PRODUCT } from './components/Brand.jsx';
+import AppFrame from './components/AppFrame.jsx';
+import NavIcon from './components/NavIcon.jsx';
 import Login from './pages/Login.jsx';
 import AccountLink from './pages/AccountLink.jsx';
 import Dashboard from './pages/Dashboard.jsx';
@@ -19,28 +21,54 @@ import Jobs from './pages/Jobs.jsx';
 import JobDetail from './pages/JobDetail.jsx';
 import Track from './pages/Track.jsx';
 
+// Settings sections as sidebar groups (VendorGate style: administration pages live in the sidebar).
+const SETTINGS_ICONS = { Contacts: 'contacts', Pricing: 'pricing', System: 'config', 'Integrata admin': 'platform' };
+function settingsGroups(user) {
+  const groups = [];
+  for (const x of settingsSections(user)) {
+    if (x.group) groups.push({ key: `s-${x.group}`, label: x.group === 'System' ? 'Administration' : x.group, icon: SETTINGS_ICONS[x.group] || 'config', items: [] });
+    else if (groups.length) groups[groups.length - 1].items.push({ to: `/settings/${x.key}`, label: x.label });
+  }
+  return groups.filter((g) => g.items.length);
+}
+
+/** Unmatched mail waiting, refreshed every minute and on each page change. */
+function useUnmatched(enabled, pathname) {
+  const [n, setN] = useState(0);
+  useEffect(() => {
+    if (!enabled) return undefined;
+    const get = () => document.visibilityState === 'visible' && api.get('/inbox/count').then((r) => setN(r.n)).catch(() => {});
+    get();
+    const t = setInterval(get, 60000);
+    return () => clearInterval(t);
+  }, [enabled, pathname]);
+  return n;
+}
+
 function Shell({ user, tenant, access, onLogout }) {
   const perms = user.perms || [];
-  const nav = [
-    ['/', 'RFQs', 'rfqs.view'],
-    ['/rfqs/new', '+ New RFQ', 'rfqs.edit'],
-    ['/jobs', 'Jobs', 'jobs.view'],
-    ['/inbox', 'Unmatched mail', 'inbox.view'],
-    ['/reports', 'Reports', 'reports.view'],
-    ['/settings', 'Settings', settingsSections(user).some((x) => x.key)],
-  ].filter(([, , p]) => (typeof p === 'boolean' ? p : !p || perms.includes(p)));
+  const can = (p) => perms.includes(p);
+  const { pathname } = useLocation();
+  const unmatched = useUnmatched(can('inbox.view'), pathname);
+  const single = [
+    { to: '/', label: 'RFQs', icon: 'rfqs', end: true, show: can('rfqs.view') },
+    { to: '/rfqs/new', label: 'New RFQ', icon: 'plus', end: true, show: can('rfqs.edit') },
+    { to: '/jobs', label: 'Jobs', icon: 'jobs', show: can('jobs.view') },
+    { to: '/inbox', label: 'Unmatched mail', icon: 'mail', show: can('inbox.view'), count: unmatched, countLabel: 'emails waiting' },
+    { to: '/reports', label: 'Reports', icon: 'reports', show: can('reports.view') },
+  ].filter((l) => l.show);
+  const entries = [...single, ...settingsGroups(user)];
+  const initials = (user.name || user.email).split(/\s+/).map((w) => w[0]).join('').slice(0, 2).toUpperCase();
   return (
-    <div className="shell">
-      <aside className="side">
-        <Brand />
-        <nav>{nav.map(([to, label]) => <NavLink key={to} to={to} end={to === '/' || to === '/rfqs/new'} className="nav">{label}</NavLink>)}</nav>
-        <div className="side-foot">
-          <div><b>{tenant?.name}</b></div>
-          <div>{user.name}</div>
-          <button className="link" onClick={onLogout}>Sign out</button>
-        </div>
-      </aside>
-      <main className="main">
+    <AppFrame
+      prefsKey="aq.nav"
+      logo={<LogoMark size={28} />}
+      product={PRODUCT.name}
+      workspace={tenant?.name}
+      entries={entries}
+      actions={<button className="af-hbtn" onClick={onLogout} title="Sign out" aria-label="Sign out"><NavIcon name="logout" size={18} /></button>}
+      user={{ initials, name: user.name, role: (user.role_names || []).join(', ') }}
+    >
         <AccessBanner access={access} user={user} />
         <Routes>
           <Route path="/" element={<Dashboard />} />
@@ -57,8 +85,7 @@ function Shell({ user, tenant, access, onLogout }) {
           <Route path="/settings/:section" element={<Settings user={user} />} />
           <Route path="*" element={<Navigate to="/" />} />
         </Routes>
-      </main>
-    </div>
+    </AppFrame>
   );
 }
 

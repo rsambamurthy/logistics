@@ -55,9 +55,8 @@ export default function Settings({ user }) {
   if (!current) return <Navigate to={`/settings/${first.key}`} replace />;
   const readOnly = current.edit && !can(current.edit);
   return (
-    <div className="with-subnav">
-      <SideMenu title="Settings" items={items.map((x) => (x.group ? x : { to: `/settings/${x.key}`, label: x.label, hint: x.hint }))} />
-      <div className="subnav-body">
+    <div className="settings-page">
+      <div>
         <ReadOnly when={readOnly}>
         {current.key === 'mailboxes' && <><PageHeader title="RFQ mailboxes" /><Mailboxes /></>}
         {current.key === 'rate-cards' && <RateCards />}
@@ -99,7 +98,7 @@ const PRESETS = {
 const presetCfg = (k) => { const { label, note, ...cfg } = PRESETS[k]; return cfg; };
 
 function Mailboxes() {
-  const list = useLoad(() => api.get('/mailboxes'));
+  const list = useLoad(() => api.get('/mailboxes'), [], { refresh: 30000 });
   const [edit, setEdit] = useState(null);
   const [test, setTest] = useState(null);
   const [busy, run] = useAction();
@@ -113,7 +112,7 @@ function Mailboxes() {
             { key: 'from_email', label: 'Address', render: (m) => `${m.from_name} <${m.from_email}>` },
             { label: 'Sending', render: (m) => (m.smtp_host && m.has_smtp_pass ? <Badge color="green">ready</Badge> : <Badge color="amber">not set</Badge>) },
             { label: 'Receiving', render: (m) => (m.imap_host && m.has_imap_pass ? <Badge color="green">ready</Badge> : <Badge color="amber">not set</Badge>) },
-            { label: 'Last check', render: (m) => <>{fmtDateTime(m.last_poll_at)}{m.last_poll_error && <div className="err small">{m.last_poll_error}</div>}</> },
+            { label: 'Last check', render: (m) => <>{fmtDateTime(m.last_poll_at)}<div className="small muted">checked automatically every minute</div>{m.last_poll_error && <div className="err small">{m.last_poll_error}</div>}</> },
             { label: '', render: (m) => (
               <div className="row gap-sm" onClick={(e) => e.stopPropagation()}>
                 <Button small variant="ghost" busy={busy === `t${m.id}`} onClick={() => run(`t${m.id}`, async () => setTest({ m, r: await api.post(`/mailboxes/${m.id}/test`) }))}>Test</Button>

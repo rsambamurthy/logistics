@@ -93,7 +93,7 @@ export async function resetPassword(token, password) {
   const t = await consume(token, ['reset', 'invite']);
   const tenant = await getTenant(t.tenant_id, { fresh: true });
   const hashPw = await bcrypt.hash(password, 10);
-  const user = await runAsTenant(tenant, () => one('UPDATE users SET password_hash=$1, email_verified_at=coalesce(email_verified_at, now()) WHERE id=$2 RETURNING id,email,name,role', [hashPw, t.user_id]));
+  const user = await runAsTenant(tenant, () => one('UPDATE users SET password_hash=$1, email_verified_at=coalesce(email_verified_at, now()), session_epoch=session_epoch+1 WHERE id=$2 RETURNING id,email,name,role,session_epoch', [hashPw, t.user_id]));
   // any other open reset links for this email stop working
   await pq("UPDATE auth_tokens SET used_at=now() WHERE email=$1 AND purpose IN ('reset','invite') AND used_at IS NULL", [t.email]);
   return { user, tenant };
@@ -102,7 +102,7 @@ export async function resetPassword(token, password) {
 export async function verifyEmail(token) {
   const t = await consume(token, ['verify']);
   const tenant = await getTenant(t.tenant_id, { fresh: true });
-  const user = await runAsTenant(tenant, () => one('UPDATE users SET email_verified_at=coalesce(email_verified_at, now()) WHERE id=$1 RETURNING id,email,name,role', [t.user_id]));
+  const user = await runAsTenant(tenant, () => one('UPDATE users SET email_verified_at=coalesce(email_verified_at, now()) WHERE id=$1 RETURNING id,email,name,role,session_epoch', [t.user_id]));
   // the company's first confirmed admin gets the welcome email
   if (user.role === 'admin') sendWelcome(tenant).catch((e) => console.error('welcome', e.message));
   return { user, tenant };

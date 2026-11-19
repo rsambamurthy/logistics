@@ -17,12 +17,13 @@ import { LANGUAGES } from '../services/i18n.js';
 import { reports } from '../services/reports.js';
 import { signUp, getTenant, accessState, usage, assertCanCreateRfq } from '../services/tenants.js';
 import { requestPasswordReset, resetPassword, verifyEmail, resendVerification, peekToken } from '../services/accountTokens.js';
-import { rateLimit } from '../lib/rateLimit.js';
+import { rateLimit, failureLimit } from '../lib/rateLimit.js';
 import { auditMiddleware, listAudit } from '../services/audit.js';
 import { onboardingStatus } from '../services/onboarding.js';
 import { createJobFromQuote, listJobs, loadJob, updateJob, setMilestone, sendBookingRequest, sendAllBookingRequests, updateBooking, readBookingEmail, sendCustomerConfirmation, addCost, deleteCost, addFiles, getFile, deleteFile, upcomingCutoffs, jobCounts } from '../services/jobs.js';
 import { setDocRequirement, requestDocuments, getSi, saveSi, prefillSi, renderSiPdf, sendSi, readBl, uploadBl, sendBlToCustomer, customerDecision, replyAgentOnBl, setFileKind, onCustomerJobEmail } from '../services/documents.js';
 import { publicTracking, tenantOfToken, refreshJob, addTrackingNumber, removeTracking, setJobTracking, resetTrackLink, trackToken, notifyMilestone, providerList } from '../services/tracking.js';
+import { sendStoredFile } from '../lib/security.js';
 import billing from './billing.js';
 import platform from './platform.js';
 
@@ -33,7 +34,11 @@ const h = (fn) => (req, res, next) => {
   const run = () => Promise.resolve(fn(req, res, next)).catch(next);
   return req.tenant ? runAsTenant(req.tenant, run) : run();
 };
-const id = (req) => Number(req.params.id);
+const id = (req) => {
+  const n = Number(req.params.id);
+  if (!Number.isInteger(n) || n < 1) throw Object.assign(new Error('Not found'), { status: 404 });
+  return n;
+};
 
 // ---------- session & sign-up ----------
 r.get('/session', h(async (req, res) => {
@@ -41,15 +46,19 @@ r.get('/session', h(async (req, res) => {
   requireAuth(req, res, () => res.json({ user: req.user, tenant: tenantView(req.tenant), access: req.access }));
 }));
 const authLimit = rateLimit({ max: 10, key: (req) => `${req.ip}|${req.path}|${String(req.body?.email || req.body?.token || '').toLowerCase()}` });
+// one address trying many accounts, and one account tried from many addresses
+const ipLimit = rateLimit({ max: 30, key: (req) => `ip|${req.ip}|${req.path}` });
+const accountFails = failureLimit({ max: 20, key: (req) => String(req.body?.email || '').toLowerCase().trim() });
 const mailLimit = rateLimit({ max: 5 });
 r.post('/signup', rateLimit({ max: 5, windowMs: 60 * 60 * 1000 }), h(async (req, res) => {
   const { user } = await signUp(req.body);
   res.json({ verify_sent: true, email: user.email });
 }));
-r.post('/login', authLimit, h(async (req, res) => {
+r.post('/login', ipLimit, accountFails.check, authLimit, h(async (req, res) => {
   try {
     res.json({ user: await login(res, req.body.email, req.body.password) });
   } catch (e) {
+    if (e.status === 401) accountFails.fail(req);
     if (e.code === 'unverified') return res.status(403).json({ error: e.message, code: 'unverified' });
     throw e;
   }
@@ -82,7 +91,7 @@ r.post('/auth/verify', authLimit, h(async (req, res) => {
   res.json({ ok: true });
 }));
 r.post('/auth/resend-verification', mailLimit, h(async (req, res) => { await resendVerification(req.body.email); res.json({ ok: true }); }));
-r.post('/logout', (req, res) => { logout(res); res.json({ ok: true }); });
+r.post('/logout', h(async (req, res) => { await logout(req, res); res.json({ ok: true }); }));
 r.use('/billing/razorpay/webhook', billing.webhook);
 
 function tenantView(t) {
@@ -254,7 +263,7 @@ r.post('/rate-cards/import', upload.single('file'), h(async (req, res) => {
   res.json(await importRateCards(req.file.buffer));
 }));
 r.post('/rate-cards/ai-read', upload.single('file'), h(async (req, res) => {
-  const blocks = req.file ? attachmentBlocks({ filename: req.file.originalname, content_type: req.file.mimetype, data: req.file.buffer }) : [];
+  const blocks = req.file ? await attachmentBlocks({ filename: req.file.originalname, content_type: req.file.mimetype, data: req.file.buffer }) : [];
   if (req.body.text) blocks.push({ type: 'text', text: String(req.body.text).slice(0, 60000) });
   if (!blocks.length) return res.status(400).json({ error: 'Upload a rate sheet or paste its text' });
   res.json(await readRateSheet({ blocks, hint: req.body.hint }));
@@ -287,9 +296,7 @@ r.post('/emails/:id/ignore', h(async (req, res) => { await q("UPDATE emails SET 
 r.get('/attachments/:id', h(async (req, res) => {
   const a = await one('SELECT * FROM attachments WHERE id=$1', [id(req)]);
   if (!a) return res.status(404).end();
-  res.setHeader('Content-Type', a.content_type || 'application/octet-stream');
-  res.setHeader('Content-Disposition', `inline; filename="${(a.filename || 'file').replace(/"/g, '')}"`);
-  res.send(a.data);
+  sendStoredFile(res, a);
 }));
 
 // ---------- agent quotes (review / manual) ----------
@@ -374,9 +381,7 @@ r.post('/jobs/:id/files', upload.array('files'), h(async (req, res) => res.json(
 r.get('/job-files/:id', h(async (req, res) => {
   const f = await getFile(id(req));
   if (!f) return res.status(404).end();
-  res.setHeader('Content-Type', f.content_type || 'application/octet-stream');
-  res.setHeader('Content-Disposition', `inline; filename="${(f.filename || 'file').replace(/"/g, '')}"`);
-  res.send(f.data);
+  sendStoredFile(res, f);
 }));
 r.delete('/job-files/:id', h(async (req, res) => res.json(await deleteFile(id(req)))));
 // ---------- job documents ----------

@@ -1,7 +1,7 @@
 // Reply pipeline: match inbound email to an RFQ invite, store it, and read it with AI.
 import { q, one, tx } from '../db.js';
 import { TAG_REGEX } from './templates.js';
-import { attachmentBlocks, htmlToText } from './extract.js';
+import { blocksFor, htmlToText } from './extract.js';
 import { parseAgentReply, classifyEmail } from './ai.js';
 import { getSetting, getAiKey } from './settings.js';
 import { createRfqFromEmail } from './intake.js';
@@ -179,7 +179,7 @@ export async function parseEmail(emailId) {
   await q("UPDATE emails SET parse_status='parsing', parse_error=NULL WHERE id=$1", [email.id]);
   let result;
   try {
-    result = await parseAgentReply({ rfq, invite, email, attachmentBlocks: atts.flatMap(attachmentBlocks) });
+    result = await parseAgentReply({ rfq, invite, email, attachmentBlocks: await blocksFor(atts) });
   } catch (e) {
     await q("UPDATE emails SET parse_status='error', parse_error=$1 WHERE id=$2", [e.message.slice(0, 500), email.id]);
     throw e;

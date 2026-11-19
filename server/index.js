@@ -13,10 +13,13 @@ import { PRODUCT } from './lib/brand.js';
 import { lifecycleSweep } from './services/lifecycle.js';
 import { trackingSweep } from './services/tracking.js';
 import { liveSideEffects } from './lib/runtime.js';
+import { securityHeaders } from './lib/security.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 app.set('trust proxy', 1);
+app.disable('x-powered-by');
+app.use(securityHeaders);
 app.use(express.json({ limit: '5mb', verify: (req, res, buf) => { req.rawBody = buf; } }));
 app.use(cookieParser());
 
@@ -32,15 +35,21 @@ if (fs.existsSync(dist)) {
 
 // eslint-disable-next-line no-unused-vars
 app.use((err, req, res, next) => {
+  if (err.code === 'LIMIT_FILE_SIZE') return res.status(413).json({ error: 'File too large (15 MB maximum).' });
+  if (err.code === 'LIMIT_FILE_COUNT' || err.code === 'LIMIT_UNEXPECTED_FILE') return res.status(400).json({ error: 'Too many files.' });
+  if (err.type === 'entity.too.large') return res.status(413).json({ error: 'Request too large.' });
+  if (err.type === 'entity.parse.failed') return res.status(400).json({ error: 'Invalid request.' });
   const status = err.status || 500;
   if (status >= 500) console.error(err);
-  res.status(status).json({ error: err.message || 'Server error' });
+  // never show internal error text (database messages, stack details) to the browser
+  res.status(status).json({ error: status >= 500 ? 'Something went wrong. Please try again.' : err.message || 'Error' });
 });
 
 const POLL_SECONDS = Number(process.env.MAIL_POLL_SECONDS || 60);
 const port = Number(process.env.PORT || 3000);
 
 (async () => {
+  if (process.env.NODE_ENV === 'production' && (!process.env.APP_SECRET || process.env.APP_SECRET.length < 32)) throw new Error('APP_SECRET must be set (32+ characters) in production');
   await migrate();
   app.listen(port, () => console.log(`${PRODUCT.name} listening on ${port}`));
   if (!liveSideEffects()) {

@@ -7,7 +7,7 @@ import { recordAgentBl, fileAttachments, documentsState } from './documents.js';
 import { applyMilestone, notifyMilestone, trackingState, trackUrlFor } from './tracking.js';
 import { bookingRequestEmail, customerBookingEmail, JOB_TAG_REGEX } from './templates.js';
 import { jobPlanFromOption, jobProfit, deriveJobStatus, cutoffsDue, bookingChanges, MILESTONES, tzOffset } from '../engines/jobs.js';
-import { attachmentBlocks } from './extract.js';
+import { blocksFor } from './extract.js';
 import { parseBookingReply as aiReadBooking } from './ai.js';
 import { getFx, getSetting, getAiKey } from './settings.js';
 import { audit } from './audit.js';
@@ -216,7 +216,7 @@ export async function readBookingEmail(emailId) {
   const atts = await q('SELECT id, filename, content_type, data FROM attachments WHERE email_id=$1', [emailId]);
   try {
     await q("UPDATE emails SET parse_status='parsing' WHERE id=$1", [emailId]);
-    const r = await aiReadBooking({ job, booking, email, attachmentBlocks: atts.flatMap(attachmentBlocks) });
+    const r = await aiReadBooking({ job, booking, email, attachmentBlocks: await blocksFor(atts) });
     const isBl = ['draft_bl', 'final_bl'].includes(r.email_type);
     const fileIds = await fileAttachments(job.id, emailId, atts, r.email_type === 'final_bl' ? 'bl' : r.email_type === 'draft_bl' ? 'draft_bl' : 'booking');
     if (isBl) {

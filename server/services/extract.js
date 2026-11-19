@@ -1,15 +1,20 @@
 // Turns email attachments into content blocks the AI can read.
-import * as XLSX from 'xlsx';
+import { sheetsAsCsv } from '../lib/sheets.js';
 
 const MAX_TEXT = 60000;
 
-function sheetToText(buf) {
-  const wb = XLSX.read(buf, { type: 'buffer' });
-  return wb.SheetNames.map((n) => `--- Sheet: ${n} ---\n${XLSX.utils.sheet_to_csv(wb.Sheets[n], { blankrows: false })}`).join('\n').slice(0, MAX_TEXT);
+async function sheetToText(buf) {
+  const sheets = await sheetsAsCsv(buf);
+  return sheets.map((x) => `--- Sheet: ${x.name} ---\n${x.csv}`).join('\n').slice(0, MAX_TEXT);
+}
+
+/** Content blocks for several attachments. */
+export async function blocksFor(atts) {
+  return (await Promise.all((atts || []).map(attachmentBlocks))).flat();
 }
 
 /** Returns Anthropic content blocks for one attachment. */
-export function attachmentBlocks(att) {
+export async function attachmentBlocks(att) {
   const name = att.filename || 'attachment';
   const type = (att.content_type || '').toLowerCase();
   const data = Buffer.isBuffer(att.data) ? att.data : Buffer.from(att.data || []);
@@ -28,7 +33,7 @@ export function attachmentBlocks(att) {
   }
   if (/sheet|excel|csv/.test(type) || /\.(xlsx|xls|csv|ods)$/i.test(name)) {
     try {
-      return [{ type: 'text', text: `Attachment: ${name}\n${sheetToText(data)}` }];
+      return [{ type: 'text', text: `Attachment: ${name}\n${await sheetToText(data)}` }];
     } catch (e) {
       return [{ type: 'text', text: `[Attachment ${name}: could not read spreadsheet: ${e.message}]` }];
     }

@@ -273,3 +273,6 @@ CREATE TABLE IF NOT EXISTS tracking_events (
   created_at TIMESTAMPTZ DEFAULT now()
 );
 CREATE UNIQUE INDEX IF NOT EXISTS tracking_events_once ON tracking_events(tracking_id, code, coalesce(at,''), coalesce(location,''), coalesce(container,''));
+
+-- 14. Sign-out ends the session: tokens carry the user's session epoch
+ALTER TABLE users ADD COLUMN IF NOT EXISTS session_epoch INT NOT NULL DEFAULT 0;

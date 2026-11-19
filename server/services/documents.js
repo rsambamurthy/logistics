@@ -4,7 +4,7 @@ import { q, one } from '../db.js';
 import { mailRequester, mailBookingAgent, filesForMail } from './requesterMail.js';
 import { documentRequestEmail, siEmail, blToCustomerEmail, blDecisionEmail, fmtDT } from './templates.js';
 import { checklist, missingFromCustomer, compareToSi, correctionsText, docName, DOC_TYPES } from '../engines/documents.js';
-import { attachmentBlocks } from './extract.js';
+import { blocksFor } from './extract.js';
 import { readShippingInstruction, readBillOfLading, readCustomerJobEmail } from './ai.js';
 import { getSetting, getAiKey } from './settings.js';
 import { createPdf, letterhead, kvRows, boxes, table, finish } from '../lib/pdf.js';
@@ -104,7 +104,7 @@ export async function prefillSi(jobId) {
   if (!(await getAiKey())) throw err('Turn on AI reading in Settings first');
   const files = await q("SELECT filename, content_type, data FROM job_files WHERE job_id=$1 AND kind IN ('invoice','packing_list','si','other') ORDER BY kind='si' DESC, id", [jobId]);
   if (!files.length) throw err('Upload the invoice and packing list first (Documents)');
-  const blocks = files.slice(0, 6).flatMap(attachmentBlocks);
+  const blocks = await blocksFor(files.slice(0, 6));
   const found = await readShippingInstruction({ job, rfq, blocks });
   const cur = await getSi(jobId);
   const keepParty = (a, b) => (b && Object.values(b).some(Boolean) ? { ...a, ...Object.fromEntries(Object.entries(b).filter(([, v]) => v)) } : a);
@@ -201,7 +201,7 @@ export async function readBl(blId) {
   const job = await one('SELECT * FROM jobs WHERE id=$1', [bl.job_id]);
   const files = bl.file_id ? await q('SELECT filename, content_type, data FROM job_files WHERE id=$1', [bl.file_id]) : [];
   const email = bl.email_id ? await one('SELECT body_text FROM emails WHERE id=$1', [bl.email_id]) : null;
-  const blocks = files.flatMap(attachmentBlocks);
+  const blocks = await blocksFor(files);
   if (!blocks.length && email?.body_text) blocks.push({ type: 'text', text: email.body_text.slice(0, 20000) });
   if (!blocks.length) throw err('Nothing to read: no file attached');
   const extracted = await readBillOfLading({ job, blocks });
@@ -275,7 +275,7 @@ export async function onCustomerJobEmail(email) {
   let r = null;
   if (ai.auto_parse && (await getAiKey())) {
     try {
-      r = await readCustomerJobEmail({ job, email, attachments: atts, blocks: atts.slice(0, 6).flatMap(attachmentBlocks) });
+      r = await readCustomerJobEmail({ job, email, attachments: atts, blocks: await blocksFor(atts.slice(0, 6)) });
     } catch (e) {
       await q("UPDATE emails SET parse_status='error', parse_error=$1 WHERE id=$2", [e.message.slice(0, 500), email.id]);
     }

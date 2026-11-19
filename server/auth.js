@@ -6,7 +6,7 @@ import crypto from 'node:crypto';
 import { getTenant, tenantForEmail, accessState, assertCanAddUser } from './services/tenants.js';
 import { sendInvite } from './services/accountTokens.js';
 
-const SECRET = () => process.env.APP_SECRET || 'dev-only-secret-change-me';
+const SECRET = () => process.env.APP_SECRET || (process.env.NODE_ENV === 'production' ? null : 'dev-only-secret-change-me');
 const COOKIE = 'aq_session';
 const err = (msg, status) => Object.assign(new Error(msg), { status });
 
@@ -14,12 +14,18 @@ export const isPlatformAdmin = (email) =>
   String(process.env.PLATFORM_ADMIN_EMAILS || '').toLowerCase().split(',').map((s) => s.trim()).filter(Boolean).includes(String(email || '').toLowerCase());
 
 export function issue(res, user, tenantId) {
-  const token = jwt.sign({ id: user.id, tid: tenantId }, SECRET(), { expiresIn: '7d' });
+  const token = jwt.sign({ id: user.id, tid: tenantId, ep: user.session_epoch || 0 }, SECRET(), { expiresIn: '7d' });
   res.cookie(COOKIE, token, { httpOnly: true, sameSite: 'lax', secure: process.env.NODE_ENV === 'production', maxAge: 7 * 864e5 });
 }
 
-export function logout(res) {
-  res.clearCookie(COOKIE);
+/** Sign out: the session token stops working everywhere it was copied (the user's other devices sign in again). */
+export async function logout(req, res) {
+  const p = decode(req);
+  if (p?.tid) {
+    const tenant = await getTenant(p.tid).catch(() => null);
+    if (tenant) await runAsTenant(tenant, () => q('UPDATE users SET session_epoch=session_epoch+1 WHERE id=$1', [p.id])).catch(() => null);
+  }
+  res.clearCookie(COOKIE, { httpOnly: true, sameSite: 'lax', secure: process.env.NODE_ENV === 'production' });
 }
 
 export async function login(res, email, password) {
@@ -52,8 +58,9 @@ export async function requireAuth(req, res, next) {
   if (!tenant || tenant.status === 'suspended') return res.status(401).json({ error: 'Account unavailable' });
   runAsTenant(tenant, async () => {
     try {
-      const u = await one('SELECT id,email,name,role FROM users WHERE id=$1', [p.id]);
-      if (!u) return res.status(401).json({ error: 'Not signed in' });
+      const u = await one('SELECT id,email,name,role,session_epoch FROM users WHERE id=$1', [p.id]);
+      if (!u || (u.session_epoch || 0) !== (p.ep || 0)) return res.status(401).json({ error: 'Not signed in' });
+      delete u.session_epoch;
       req.user = { ...u, platform_admin: isPlatformAdmin(u.email) };
       req.tenant = tenant;
       req.access = accessState(tenant);

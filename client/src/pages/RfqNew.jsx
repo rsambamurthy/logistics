@@ -11,6 +11,8 @@ export default function RfqNew() {
   const toast = useToast();
   const parties = useLoad(() => api.get('/agents'));
   const mailboxes = useLoad(() => api.get('/mailboxes'));
+  const settings = useLoad(() => api.get('/settings'));
+  const aiReady = !settings.data || settings.data.ai?.has_key || settings.data.ai?.platform_key;
   const [rfq, setRfq] = useState(EMPTY);
   const [invites, setInvites] = useState([]);
   const [enquiry, setEnquiry] = useState('');
@@ -51,7 +53,8 @@ export default function RfqNew() {
   return (
     <>
       <PageHeader title="New RFQ" sub="Paste the customer's enquiry, check the details, pick partner agents, send." />
-      <Card title="1. Enquiry from customer or partner agent (optional)" actions={<Button variant="ghost" busy={busy === 'ai'} disabled={!enquiry.trim()} onClick={readEnquiry}>Read with AI</Button>}>
+      <Card title="1. Enquiry from customer or partner agent (optional)" actions={<Button variant="ghost" busy={busy === 'ai'} disabled={!enquiry.trim() || !aiReady} title={aiReady ? '' : 'AI reading is not set up yet'} onClick={readEnquiry}>Read with AI</Button>}>
+        {!aiReady && <div className="alert alert-amber small">AI reading is not set up for your company yet, so fill in the shipment details below by hand. An administrator can add the AI key in Settings → AI.</div>}
         <Textarea rows={5} placeholder="Paste the customer's email or WhatsApp message here…" value={enquiry} onChange={(e) => setEnquiry(e.target.value)} />
       </Card>
       <Card title="2. Shipment">

@@ -6,7 +6,8 @@ const API_URL = process.env.ANTHROPIC_BASE_URL || 'https://api.anthropic.com/v1/
 
 async function callTool({ system, content, tool, maxTokens = 4000 }) {
   const key = await getAiKey();
-  if (!key) throw new Error('AI key not configured. Add it in Settings → AI.');
+  // shown to the user as is (4xx), not as a generic server error
+  if (!key) throw Object.assign(new Error('AI reading is not set up for your company yet. An administrator can add the AI key in Settings → AI. Meanwhile, fill in the shipment details by hand.'), { status: 409, code: 'ai_not_configured' });
   const { model } = await getSetting('ai');
   const res = await fetch(API_URL, {
     method: 'POST',
@@ -21,9 +22,15 @@ async function callTool({ system, content, tool, maxTokens = 4000 }) {
     }),
   });
   const body = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(`AI error ${res.status}: ${body?.error?.message || JSON.stringify(body).slice(0, 300)}`);
+  if (!res.ok) {
+    console.error('AI error', res.status, body?.error?.message || JSON.stringify(body).slice(0, 300));
+    const msg = res.status === 401 || res.status === 403 ? 'The AI key was refused. An administrator should check it in Settings → AI.'
+      : res.status === 429 || res.status === 529 ? 'The AI service is busy right now. Try again in a minute, or fill in the details by hand.'
+      : 'The AI service could not read this right now. Try again, or fill in the details by hand.';
+    throw Object.assign(new Error(msg), { status: 424 });
+  }
   const block = (body.content || []).find((b) => b.type === 'tool_use');
-  if (!block) throw new Error('AI returned no structured result');
+  if (!block) throw Object.assign(new Error('The AI could not make sense of this text. Fill in the details by hand.'), { status: 422 });
   return block.input;
 }
 

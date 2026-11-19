@@ -4,23 +4,32 @@ import { LEG_CODES, BASIS_CODES, CHARGE_CODES, CURRENCIES, CONTAINER_TYPES, INCO
 
 const API_URL = process.env.ANTHROPIC_BASE_URL || 'https://api.anthropic.com/v1/messages';
 
+const NO_FORCED = new Set(); // models that do not accept a forced tool choice
+
 async function callTool({ system, content, tool, maxTokens = 4000 }) {
   const key = await getAiKey();
   // shown to the user as is (4xx), not as a generic server error
   if (!key) throw Object.assign(new Error('AI reading is not set up for your company yet. An administrator can add the AI key in Settings → AI. Meanwhile, fill in the shipment details by hand.'), { status: 409, code: 'ai_not_configured' });
   const { model } = await getSetting('ai');
-  const res = await fetch(API_URL, {
+  // Some models refuse a forced tool choice; for those, let the model choose and tell it to use the tool.
+  const ask = (forced) => fetch(API_URL, {
     method: 'POST',
     headers: { 'content-type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01' },
     body: JSON.stringify({
       model,
       max_tokens: maxTokens,
-      system,
+      system: forced ? system : `${system}\n\nAlways answer by calling the ${tool.name} tool exactly once. Do not reply with text.`,
       tools: [tool],
-      tool_choice: { type: 'tool', name: tool.name },
+      tool_choice: forced ? { type: 'tool', name: tool.name } : { type: 'auto' },
       messages: [{ role: 'user', content }],
     }),
   });
+  const forced = !NO_FORCED.has(model);
+  let res = await ask(forced);
+  if (forced && res.status === 400) {
+    const peek = await res.clone().json().catch(() => ({}));
+    if (/tool_choice/i.test(peek?.error?.message || '')) { NO_FORCED.add(model); res = await ask(false); }
+  }
   const body = await res.json().catch(() => ({}));
   if (!res.ok) {
     console.error('AI error', res.status, body?.error?.message || JSON.stringify(body).slice(0, 300));

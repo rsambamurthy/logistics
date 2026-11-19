@@ -24,6 +24,7 @@ export const BASES = [
   { code: 'per_bl', name: 'Per BL / AWB' },
   { code: 'per_declaration', name: 'Per declaration (SB/BE/TDEC)' },
   { code: 'per_trip', name: 'Per truck trip' },
+  { code: 'per_package', name: 'Per package (pallet, carton…)' },
 ];
 export const BASIS_CODES = BASES.map((b) => b.code);
 
@@ -91,6 +92,16 @@ export function normaliseBasis(text = '') {
   return 'per_shipment';
 }
 
+// Package types for LCL / air / trucking / handling charges priced per package
+export const PACKAGE_TYPES = ['Pallet', 'Carton', 'Crate', 'Case', 'Box', 'Drum', 'Bag', 'Bale', 'Bundle', 'Roll', 'Coil', 'Piece'];
+/** Match free text ("pallets", "PLT", "cartons") to a package type, or null. */
+export function normalisePackage(v) {
+  const t = String(v || '').trim().toLowerCase();
+  if (!t) return null;
+  const alias = { plt: 'Pallet', skid: 'Pallet', ctn: 'Carton', cs: 'Case', pkg: null, pcs: 'Piece', pc: 'Piece' };
+  if (t in alias) return alias[t];
+  return PACKAGE_TYPES.find((p) => t === p.toLowerCase() || t === `${p.toLowerCase()}s` || t === `${p.toLowerCase()}es`) || null;
+}
 export const CONTAINER_TYPES = ['20GP', '40GP', '40HC', '20RF', '40RF', '20OT', '40OT', '20FR', '40FR', '45HC'];
 export const MODES = [
   { code: 'FCL', name: 'Sea FCL' },

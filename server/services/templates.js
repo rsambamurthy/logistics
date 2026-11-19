@@ -14,7 +14,7 @@ export function routeText(rfq, sep = ' → ') {
 function equipmentText(rfq) {
   if (rfq.mode === 'FCL') return (rfq.containers || []).map((c) => `${c.qty} x ${c.type}`).join(', ');
   const parts = [];
-  if (rfq.packages) parts.push(`${rfq.packages} pkgs`);
+  if (rfq.packages) parts.push(`${rfq.packages} ${rfq.package_type ? `${rfq.package_type.toLowerCase()}${rfq.packages > 1 ? 's' : ''}` : 'pkgs'}`);
   if (rfq.gross_weight_kg) parts.push(`${rfq.gross_weight_kg} kg`);
   if (rfq.volume_cbm) parts.push(`${rfq.volume_cbm} cbm`);
   return parts.join(' / ');

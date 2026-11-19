@@ -51,6 +51,7 @@ function metricFor(basis, m) {
   if (basis === 'per_kg') return m.chargeableKg;
   if (basis === 'per_cbm') return m.cbm;
   if (basis === 'per_wm') return m.wm;
+  if (basis === 'per_package') return m.packages;
   return m.kg;
 }
 
@@ -66,6 +67,10 @@ export function cardLines(card, rfq) {
       const n = containers.filter((c) => c.type === l.equipment).reduce((s, c) => s + Number(c.qty || 0), 0);
       if (!n) continue;
       if (['per_container', 'per_20', 'per_40', 'per_trip'].includes(l.basis)) qty = n;
+    }
+    if (l.package_type) {
+      // a charge for one package type applies only when the shipment is packed that way
+      if (!rfq.package_type || String(rfq.package_type).toLowerCase() !== String(l.package_type).toLowerCase()) continue;
     }
     const metric = metricFor(l.basis, m);
     if (l.qty_from !== null && l.qty_from !== undefined && metric < Number(l.qty_from)) continue;

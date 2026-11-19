@@ -2,7 +2,7 @@ import express from 'express';
 import multer from 'multer';
 import { q, one, runAsTenant } from '../db.js';
 import { requireAuth, requireActiveSubscription, createUser, resendInvite, login, logout, issue, listUsers, updateUser, setUserDisabled, decode } from '../auth.js';
-import { LEGS, BASES, CHARGE_CODES, MODES, INCOTERMS, CURRENCIES, CONTAINER_TYPES, LEG_CODES } from '../engines/charges.js';
+import { LEGS, BASES, CHARGE_CODES, MODES, INCOTERMS, CURRENCIES, CONTAINER_TYPES, LEG_CODES, PACKAGE_TYPES } from '../engines/charges.js';
 import { getAllPublic, setSetting, saveAi, saveTracking } from '../services/settings.js';
 import { encrypt } from '../lib/crypto.js';
 import { getMailbox, testSmtp, testImap, pollMailbox, canReceive } from '../services/mail.js';
@@ -115,7 +115,7 @@ r.use(authorize);
 r.use('/billing', billing.router);
 r.use('/platform', platform);
 
-r.get('/meta', (req, res) => res.json({ languages: LANGUAGES, permissions: PERMISSION_GROUPS, legs: LEGS, bases: BASES, charges: CHARGE_CODES.map(({ synonyms, ...c }) => c), modes: MODES, incoterms: INCOTERMS, currencies: CURRENCIES, containerTypes: CONTAINER_TYPES }));
+r.get('/meta', (req, res) => res.json({ languages: LANGUAGES, permissions: PERMISSION_GROUPS, legs: LEGS, bases: BASES, charges: CHARGE_CODES.map(({ synonyms, ...c }) => c), modes: MODES, incoterms: INCOTERMS, currencies: CURRENCIES, containerTypes: CONTAINER_TYPES, packageTypes: PACKAGE_TYPES }));
 
 // ---------- users ----------
 r.get('/users', h(async (req, res) => res.json(await listUsers())));

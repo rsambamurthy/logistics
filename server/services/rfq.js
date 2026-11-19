@@ -8,7 +8,7 @@ import { compare } from '../engines/costing.js';
 import { getFx } from './settings.js';
 import { audit } from './audit.js';
 
-const RFQ_FIELDS = ['requester_id', 'requester_role', 'requester_ref', 'source_email_id', 'parent_rfq_id', 'hs_code', 'dangerous_goods', 'dg_class', 'un_number', 'reefer_temp', 'dimensions', 'cargo_value', 'cargo_value_currency', 'stackable', 'mailbox_id', 'mode', 'pol', 'pod', 'pickup_place', 'delivery_place', 'incoterm', 'commodity', 'containers', 'packages', 'gross_weight_kg', 'volume_cbm', 'ready_date', 'deadline', 'notes', 'legs'];
+const RFQ_FIELDS = ['requester_id', 'requester_role', 'requester_ref', 'source_email_id', 'parent_rfq_id', 'hs_code', 'dangerous_goods', 'dg_class', 'un_number', 'reefer_temp', 'dimensions', 'cargo_value', 'cargo_value_currency', 'stackable', 'mailbox_id', 'mode', 'pol', 'pod', 'pickup_place', 'delivery_place', 'incoterm', 'commodity', 'containers', 'packages', 'package_type', 'gross_weight_kg', 'volume_cbm', 'ready_date', 'deadline', 'notes', 'legs'];
 
 function clean(v) {
   return v === '' || v === undefined ? null : v;

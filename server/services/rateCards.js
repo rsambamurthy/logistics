@@ -3,7 +3,7 @@ import * as XLSX from 'xlsx';
 import { sheetRows } from '../lib/sheets.js';
 import { q, one, tx } from '../db.js';
 import { priceFromCards, legPlaces } from '../engines/ratecards.js';
-import { LEG_CODES, BASIS_CODES, CHARGE_CODES, normaliseCharge, normaliseBasis, legName, MODES } from '../engines/charges.js';
+import { LEG_CODES, BASIS_CODES, CHARGE_CODES, normaliseCharge, normaliseBasis, legName, MODES, normalisePackage, PACKAGE_TYPES } from '../engines/charges.js';
 import { getFx, getSetting } from './settings.js';
 import { saveQuote } from './replies.js';
 import { systemInvite, ownParty } from './rfq.js';
@@ -59,8 +59,8 @@ export async function saveCard(data, t) {
     let i = 0;
     for (const l of data.lines || []) {
       await db.q(
-        'INSERT INTO rate_card_lines(rate_card_id,charge_code,description,basis,rate,currency,equipment,qty_from,qty_to,min_amount,sort) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)',
-        [card.id, l.charge_code || 'OTHER', blank(l.description), l.basis, Number(l.rate), String(l.currency || 'USD').toUpperCase(), blank(l.equipment), blank(l.qty_from), blank(l.qty_to), blank(l.min_amount), i++]
+        'INSERT INTO rate_card_lines(rate_card_id,charge_code,description,basis,rate,currency,equipment,qty_from,qty_to,min_amount,sort,package_type) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)',
+        [card.id, l.charge_code || 'OTHER', blank(l.description), l.basis, Number(l.rate), String(l.currency || 'USD').toUpperCase(), blank(l.equipment), blank(l.qty_from), blank(l.qty_to), blank(l.min_amount), i++, normalisePackage(l.package_type)]
       );
     }
     return card;
@@ -139,18 +139,19 @@ export async function applyRateCards(rfqId) {
 }
 
 // ---------------- Excel / CSV import ----------------
-export const TEMPLATE_COLUMNS = ['card_name', 'vendor_email', 'leg', 'mode', 'origin', 'destination', 'carrier', 'valid_from', 'valid_to', 'transit_days', 'free_days', 'charge_code', 'description', 'basis', 'equipment', 'rate', 'currency', 'qty_from', 'qty_to', 'min_amount'];
+export const TEMPLATE_COLUMNS = ['card_name', 'vendor_email', 'leg', 'mode', 'origin', 'destination', 'carrier', 'valid_from', 'valid_to', 'transit_days', 'free_days', 'charge_code', 'description', 'basis', 'equipment', 'package_type', 'rate', 'currency', 'qty_from', 'qty_to', 'min_amount'];
 
 export function templateWorkbook() {
   const wb = XLSX.utils.book_new();
   const rows = [
     TEMPLATE_COLUMNS,
-    ['ONE MAA-HKG Dec', '', 'freight', 'FCL', 'Chennai, INMAA', 'Hong Kong, HKHKG', 'ONE', '2026-12-01', '2026-12-31', 9, 14, 'OFR', 'Ocean freight', 'per_container', '20GP', 450, 'USD', '', '', ''],
-    ['ONE MAA-HKG Dec', '', 'freight', 'FCL', 'Chennai, INMAA', 'Hong Kong, HKHKG', 'ONE', '2026-12-01', '2026-12-31', 9, 14, 'OFR', 'Ocean freight', 'per_container', '40HC', 610, 'USD', '', '', ''],
-    ['ONE MAA-HKG Dec', '', 'freight', 'FCL', 'Chennai, INMAA', 'Hong Kong, HKHKG', 'ONE', '2026-12-01', '2026-12-31', 9, 14, 'BAF', 'Bunker surcharge', 'per_container', '', 60, 'USD', '', '', ''],
-    ['Chennai CHA', '', 'export_customs', 'ANY', 'Chennai, INMAA', '', '', '2026-11-01', '2027-03-31', '', '', 'CHA', 'Customs clearance', 'per_declaration', '', 3500, 'INR', '', '', ''],
-    ['Sriperumbudur trucking', 'transport@example.com', 'pickup', 'FCL', 'Sriperumbudur, Oragadam', 'Chennai, INMAA', '', '2026-11-01', '2027-03-31', '', '', 'TRUCK', '40ft trailer', 'per_trip', '40HC', 16000, 'INR', '', '', ''],
-    ['MAA-HKG air', '', 'freight', 'AIR', 'Chennai, MAA', 'Hong Kong, HKG', 'CX', '2026-11-01', '2026-12-31', 1, '', 'AFR', 'Air freight 100-500kg', 'per_kg', '', 2.1, 'USD', 100, 500, 150],
+    ['ONE MAA-HKG Dec', '', 'freight', 'FCL', 'Chennai, INMAA', 'Hong Kong, HKHKG', 'ONE', '2026-12-01', '2026-12-31', 9, 14, 'OFR', 'Ocean freight', 'per_container', '20GP', '', 450, 'USD', '', '', ''],
+    ['ONE MAA-HKG Dec', '', 'freight', 'FCL', 'Chennai, INMAA', 'Hong Kong, HKHKG', 'ONE', '2026-12-01', '2026-12-31', 9, 14, 'OFR', 'Ocean freight', 'per_container', '40HC', '', 610, 'USD', '', '', ''],
+    ['ONE MAA-HKG Dec', '', 'freight', 'FCL', 'Chennai, INMAA', 'Hong Kong, HKHKG', 'ONE', '2026-12-01', '2026-12-31', 9, 14, 'BAF', 'Bunker surcharge', 'per_container', '', '', 60, 'USD', '', '', ''],
+    ['Chennai CHA', '', 'export_customs', 'ANY', 'Chennai, INMAA', '', '', '2026-11-01', '2027-03-31', '', '', 'CHA', 'Customs clearance', 'per_declaration', '', '', 3500, 'INR', '', '', ''],
+    ['Sriperumbudur trucking', 'transport@example.com', 'pickup', 'FCL', 'Sriperumbudur, Oragadam', 'Chennai, INMAA', '', '2026-11-01', '2027-03-31', '', '', 'TRUCK', '40ft trailer', 'per_trip', '40HC', '', 16000, 'INR', '', '', ''],
+    ['MAA-HKG air', '', 'freight', 'AIR', 'Chennai, MAA', 'Hong Kong, HKG', 'CX', '2026-11-01', '2026-12-31', 1, '', 'AFR', 'Air freight 100-500kg', 'per_kg', '', '', 2.1, 'USD', 100, 500, 150],
+    ['LCL handling MAA', '', 'origin_charges', 'LCL', 'Chennai, INMAA', '', '', '2026-11-01', '2027-03-31', '', '', 'CFS', 'CFS handling per pallet', 'per_package', '', 'Pallet', 350, 'INR', '', '', ''],
   ];
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rows), 'Rates');
   const help = [
@@ -159,6 +160,7 @@ export function templateWorkbook() {
     ['vendor_email: leave blank for your own rates, or the email of the transporter / line / agent whose rates these are.'],
     ['origin / destination: comma-separated names or codes that should match the RFQ (e.g. "Chennai, INMAA"). Blank = any. For customs and port charges only origin is used (the port).'],
     ['equipment: container type for FCL lines (20GP, 40GP, 40HC...). Blank = applies to every container.'],
+    ['package_type: for charges per package (basis per_package) or for one way of packing: ' + PACKAGE_TYPES.join(', ') + '. Blank = any packing.'],
     ['qty_from / qty_to: weight or volume break (kg for per_kg, cbm for per_cbm). min_amount: minimum charge.'],
     [],
     ['leg codes', LEG_CODES.join(', ')],
@@ -217,6 +219,7 @@ export async function importRateCards(buffer) {
       description: r.description || null,
       basis: BASIS_CODES.includes(String(r.basis).toLowerCase()) ? String(r.basis).toLowerCase() : normaliseBasis(r.basis),
       equipment: r.equipment ? String(r.equipment).toUpperCase().replace(/\s|'/g, '') : null,
+      package_type: normalisePackage(r.package_type),
       rate: num(r.rate),
       currency: String(r.currency || 'USD').toUpperCase(),
       qty_from: num(r.qty_from),

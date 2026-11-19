@@ -96,3 +96,16 @@ test('multi-option quote and revision diff', () => {
   assert.ok(d.some((x) => x.includes('Origin trucking')));
   assert.ok(d.some((x) => x.includes('option(s) removed')));
 });
+
+test('per-package charges follow the shipment package type', async () => {
+  const { cardLines } = await import('../engines/ratecards.js');
+  const card = { leg: 'origin_charges', lines: [
+    { charge_code: 'CFS', basis: 'per_package', package_type: 'Pallet', rate: 350, currency: 'INR' },
+    { charge_code: 'CFS', basis: 'per_package', package_type: 'Carton', rate: 40, currency: 'INR' },
+    { charge_code: 'DOC', basis: 'per_bl', rate: 1500, currency: 'INR' },
+  ] };
+  const pallets = cardLines(card, { mode: 'LCL', packages: 6, package_type: 'Pallet' });
+  assert.deepEqual(pallets.map((l) => [l.charge_code, l.rate]), [['CFS', 350], ['DOC', 1500]]);
+  assert.equal(qtyFor('per_package', { packages: 6 }), 6);
+  assert.deepEqual(cardLines(card, { mode: 'LCL', packages: 6 }).map((l) => l.charge_code), ['DOC']);
+});

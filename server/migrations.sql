@@ -306,3 +306,7 @@ ALTER TABLE customer_quotes ADD COLUMN IF NOT EXISTS approval_role TEXT;
 -- 18. Rate sheets arriving by email: AI-read rate cards waiting for review
 ALTER TABLE emails ADD COLUMN IF NOT EXISTS rate_proposal JSONB;
 CREATE INDEX IF NOT EXISTS emails_parse_status_idx ON emails(parse_status);
+
+-- 19. Package type on rate card charges and on the shipment (per-package pricing)
+ALTER TABLE rate_card_lines ADD COLUMN IF NOT EXISTS package_type TEXT;
+ALTER TABLE rfqs ADD COLUMN IF NOT EXISTS package_type TEXT;

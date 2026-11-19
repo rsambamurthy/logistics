@@ -15,7 +15,8 @@ export function shipmentMetrics(rfq) {
   const volKg = cbm * 167; // air volumetric weight (1 cbm = 167 kg)
   const chargeableKg = rfq.mode === 'AIR' ? Math.max(kg, volKg) : kg;
   const wm = Math.max(cbm, kg / 1000);
-  return { containers: total, c20, c40, cbm, kg, chargeableKg: round2(chargeableKg), wm: round2(wm) };
+  const packages = Number(rfq.packages || 0);
+  return { containers: total, c20, c40, cbm, kg, packages, chargeableKg: round2(chargeableKg), wm: round2(wm) };
 }
 
 export function qtyFor(basis, rfq) {
@@ -28,6 +29,7 @@ export function qtyFor(basis, rfq) {
     case 'per_kg': return m.chargeableKg;
     case 'per_wm': return Math.max(m.wm, 1);
     case 'per_trip': return rfq.mode === 'FCL' ? Math.max(m.containers, 1) : 1;
+    case 'per_package': return m.packages || 1;
     default: return 1; // per_shipment, per_bl, per_declaration
   }
 }

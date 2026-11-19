@@ -113,11 +113,11 @@ function CardModal({ card, vendors, onClose, onDone }) {
         <ChargeLinesTable
           lines={c.lines || []}
           onChange={(lines) => setC({ ...c, lines })}
-          opts={{ equipment: c.mode === 'FCL' || !c.mode || c.mode === 'ANY', breaks: c.mode !== 'FCL' }}
+          opts={{ equipment: c.mode === 'FCL' || !c.mode || c.mode === 'ANY', packages: true, breaks: c.mode !== 'FCL' }}
           newLine={() => ({ charge_code: c.leg === 'freight' ? (c.mode === 'AIR' ? 'AFR' : 'OFR') : 'OTHER', basis: c.mode === 'AIR' ? 'per_kg' : 'per_container', currency: 'USD', rate: '' })}
         />
       </Field>
-      <p className="muted small">Lines with a container type only apply when the RFQ has that container. Weight breaks use chargeable kg (per kg) or cbm (per cbm); the minimum replaces the amount when it is lower.</p>
+      <p className="muted small">Lines with a container type only apply when the RFQ has that container; lines with a package type only when the cargo is packed that way (per package = number of packages). Weight breaks use chargeable kg (per kg) or cbm (per cbm); the minimum replaces the amount when it is lower.</p>
     </Modal>
   );
 }
@@ -194,7 +194,7 @@ function AiReadModal({ vendors, onClose, onDone }) {
   );
 }
 
-const lineKey = (l) => `${l.charge_code}|${l.equipment || ''}|${l.qty_from ?? ''}`;
+const lineKey = (l) => `${l.charge_code}|${l.equipment || ''}|${l.package_type || ''}|${l.qty_from ?? ''}`;
 
 /** One AI-read rate card: lane, validity and charges; with `current`, shows the stored rate beside the new one. */
 export function RateCardPreview({ card: c, checked, onCheck, current }) {
@@ -210,13 +210,13 @@ export function RateCardPreview({ card: c, checked, onCheck, current }) {
       <div className="small muted">{meta.legName(c.leg)} · {c.mode || 'Any mode'} · {c.origin || 'Any'}{c.destination ? ` → ${c.destination}` : ''}{c.carrier ? ` · ${c.carrier}` : ''} · valid {c.valid_from || '?'} – {c.valid_to || '?'}
         {current && <> (now {fmtDate(current.valid_from)} – {fmtDate(current.valid_to)})</>}</div>
       <table className="table compact">
-        <thead><tr><th>Charge</th><th>Basis</th><th>Container / break</th>{current && <th style={{ textAlign: 'right' }}>Now</th>}<th style={{ textAlign: 'right' }}>{current ? 'New' : 'Rate'}</th></tr></thead>
+        <thead><tr><th>Charge</th><th>Basis</th><th>Container / package / break</th>{current && <th style={{ textAlign: 'right' }}>Now</th>}<th style={{ textAlign: 'right' }}>{current ? 'New' : 'Rate'}</th></tr></thead>
         <tbody>{c.lines.map((l, j) => {
           const was = old[lineKey(l)];
           const changed = current && (!was || Number(was.rate) !== Number(l.rate) || was.currency !== l.currency);
           return (
             <tr key={j}><td>{l.description || meta.chargeName(l.charge_code)} <span className="muted small">{l.charge_code}</span></td><td>{meta.basisName(l.basis)}</td>
-              <td className="small">{l.equipment || ''}{l.qty_from !== null || l.qty_to !== null ? ` ${l.qty_from ?? 0}–${l.qty_to ?? '∞'}` : ''}{l.min_amount ? ` min ${l.min_amount}` : ''}</td>
+              <td className="small">{[l.equipment, l.package_type].filter(Boolean).join(' · ')}{l.qty_from !== null || l.qty_to !== null ? ` ${l.qty_from ?? 0}–${l.qty_to ?? '∞'}` : ''}{l.min_amount ? ` min ${l.min_amount}` : ''}</td>
               {current && <td style={{ textAlign: 'right' }} className="muted">{was ? money(was.rate, was.currency) : '—'}</td>}
               <td style={{ textAlign: 'right' }}>{changed ? <b>{money(l.rate, l.currency)}</b> : money(l.rate, l.currency)}</td></tr>
           );

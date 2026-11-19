@@ -1,6 +1,6 @@
 // AI agents: read partner-agent replies and customer enquiries into structured data.
 import { getAiKey, getSetting } from './settings.js';
-import { LEG_CODES, BASIS_CODES, CHARGE_CODES, CURRENCIES, CONTAINER_TYPES, INCOTERMS, normaliseCharge, normaliseBasis, legName } from '../engines/charges.js';
+import { LEG_CODES, BASIS_CODES, CHARGE_CODES, CURRENCIES, CONTAINER_TYPES, INCOTERMS, normaliseCharge, normaliseBasis, legName, PACKAGE_TYPES, normalisePackage } from '../engines/charges.js';
 
 const API_URL = process.env.ANTHROPIC_BASE_URL || 'https://api.anthropic.com/v1/messages';
 
@@ -165,6 +165,7 @@ const ENQUIRY_TOOL = {
       commodity: { type: 'string' },
       containers: { type: 'array', items: { type: 'object', properties: { type: { type: 'string', enum: CONTAINER_TYPES }, qty: { type: 'integer' } }, required: ['type', 'qty'] } },
       packages: { type: 'integer' },
+      package_type: { type: 'string', enum: PACKAGE_TYPES, description: 'How the cargo is packed, if stated (pallets, cartons, crates…)' },
       gross_weight_kg: { type: 'number' },
       volume_cbm: { type: 'number' },
       ready_date: { type: 'string', description: 'YYYY-MM-DD' },
@@ -242,6 +243,7 @@ const RATESHEET_TOOL = {
                   description: { type: 'string' },
                   basis: { type: 'string', enum: BASIS_CODES },
                   equipment: { type: 'string', enum: CONTAINER_TYPES, description: 'Container type for FCL rates; omit if the charge applies to all containers' },
+                  package_type: { type: 'string', enum: PACKAGE_TYPES, description: 'Package type when the rate is per pallet / carton / crate etc. (use basis per_package), or when it applies to one way of packing only' },
                   rate: { type: 'number' },
                   currency: { type: 'string' },
                   qty_from: { type: 'number', description: 'Weight/volume break start (kg or cbm)' },
@@ -266,6 +268,7 @@ export async function readRateSheet({ blocks, hint }) {
   const system = `You convert freight rate sheets into structured buy-rate cards for a C&F agent in India / Hong Kong.
 - Each card = one leg (pickup, export_customs, origin_charges, freight, destination_charges, import_customs, delivery) for one lane and mode.
 - Ocean rates per container type go as separate lines with equipment set (20GP, 40GP, 40HC...). Surcharges that apply to every container have no equipment.
+- Rates per pallet, carton, crate, drum etc. use basis per_package with package_type set.
 - Air rates with weight breaks: one line per break with qty_from/qty_to in kg and basis per_kg; minimum charge in min_amount.
 - Local charges (THC, documentation, BL fee, seal) belong to origin_charges or destination_charges.
 - Use the sheet's validity dates. Do not invent rates. Use charge code OTHER when nothing fits.
@@ -294,6 +297,7 @@ Today: ${new Date().toISOString().slice(0, 10)}`;
         description: l.description || null,
         basis: BASIS_CODES.includes(l.basis) ? l.basis : normaliseBasis(l.basis),
         equipment: CONTAINER_TYPES.includes(l.equipment) ? l.equipment : null,
+        package_type: normalisePackage(l.package_type),
         rate: Number(l.rate) || 0,
         currency: String(l.currency || 'USD').toUpperCase().slice(0, 3),
         qty_from: l.qty_from ?? null,

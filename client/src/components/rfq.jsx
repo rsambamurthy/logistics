@@ -8,7 +8,7 @@ export const routeOf = (r) => [r.pickup_place, r.pol, r.pod, r.delivery_place].f
 
 export function cargoOf(r) {
   if (r.mode === 'FCL') return (r.containers || []).map((c) => `${c.qty}×${c.type}`).join(', ');
-  return [r.packages && `${r.packages} pkgs`, r.gross_weight_kg && `${r.gross_weight_kg} kg`, r.volume_cbm && `${r.volume_cbm} cbm`].filter(Boolean).join(' / ');
+  return [r.packages && `${r.packages} ${r.package_type ? `${r.package_type.toLowerCase()}${r.packages > 1 ? 's' : ''}` : 'pkgs'}`, r.gross_weight_kg && `${r.gross_weight_kg} kg`, r.volume_cbm && `${r.volume_cbm} cbm`].filter(Boolean).join(' / ');
 }
 
 function ContainerEditor({ value = [], onChange }) {
@@ -75,7 +75,7 @@ export function ShipmentForm({ value, onChange, parties = [], mailboxes = [] }) 
           <Field label="Containers" span={2}><ContainerEditor value={value.containers} onChange={(v) => set('containers', v)} /></Field>
         ) : (
           <>
-            <Field label="Packages">{inp('packages', { type: 'number' })}</Field>
+            <Field label="Packages"><div className="row gap-sm">{inp('packages', { type: 'number', style: { width: 90 } })}<Select placeholder="— type —" options={meta.packageTypes || []} value={value.package_type || ''} onChange={(e) => set('package_type', e.target.value || null)} /></div></Field>
             <Field label="Volume (cbm)">{inp('volume_cbm', { type: 'number', step: '0.01' })}</Field>
           </>
         )}
@@ -167,7 +167,8 @@ const blankLine = (leg = 'freight') => ({ leg, charge_code: 'OFR', description: 
 
 /**
  * Editable table of charge lines. Shared by agent-quote review/entry and rate cards.
- * opts: { leg: show leg column (legs = allowed), qty: show qty override, equipment: show container type, breaks: show weight breaks + minimum }
+ * opts: { leg: show leg column (legs = allowed), qty: show qty override, equipment: show container type,
+ *         packages: show package type, breaks: show weight breaks + minimum }
  */
 export function ChargeLinesTable({ lines, onChange, legs, opts = {}, newLine }) {
   const meta = useMeta();
@@ -194,6 +195,7 @@ export function ChargeLinesTable({ lines, onChange, legs, opts = {}, newLine }) 
               {opts.leg && <th>Leg</th>}
               <th>Charge</th><th>Description</th><th>Basis</th>
               {opts.equipment && <th>Container</th>}
+              {opts.packages && <th>Package</th>}
               <th>Cur</th><th style={{ textAlign: 'right' }}>Rate</th>
               {opts.breaks && <><th>From</th><th>To</th><th>Minimum</th></>}
               {opts.qty && <th>Qty override</th>}
@@ -208,7 +210,8 @@ export function ChargeLinesTable({ lines, onChange, legs, opts = {}, newLine }) 
                 <td><Input value={l.description} onChange={(e) => setLine(i, 'description', e.target.value)} /></td>
                 <td><Select options={meta.basisOptions} value={l.basis} onChange={(e) => setLine(i, 'basis', e.target.value)} /></td>
                 {opts.equipment && <td><Select options={meta.containerTypes} placeholder="All" value={l.equipment} onChange={(e) => setLine(i, 'equipment', e.target.value)} /></td>}
-                <td><Select options={meta.currencies.includes(l.currency) ? meta.currencies : [...meta.currencies, l.currency]} value={l.currency} onChange={(e) => setLine(i, 'currency', e.target.value)} /></td>
+                {opts.packages && <td><Select style={{ minWidth: 96 }} options={meta.packageTypes || []} placeholder="Any" value={l.package_type || ''} onChange={(e) => setLine(i, 'package_type', e.target.value || null)} /></td>}
+                <td><Select style={{ minWidth: 78 }} options={meta.currencies.includes(l.currency) ? meta.currencies : [...meta.currencies, l.currency]} value={l.currency} onChange={(e) => setLine(i, 'currency', e.target.value)} /></td>
                 <td>{numIn(i, 'rate', 100)}</td>
                 {opts.breaks && <><td>{numIn(i, 'qty_from', 70, '—')}</td><td>{numIn(i, 'qty_to', 70, '—')}</td><td>{numIn(i, 'min_amount', 80, '—')}</td></>}
                 {opts.qty && <td>{numIn(i, 'qty', 70, 'auto')}</td>}

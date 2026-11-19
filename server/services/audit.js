@@ -11,16 +11,7 @@ export async function audit(user, action, { entity = null, entityId = null, rfqI
   }
 }
 
-const rfqOf = {
-  invite: (id) => one('SELECT rfq_id FROM rfq_invites WHERE id=$1', [id]),
-  agentQuote: (id) => one('SELECT rfq_id FROM agent_quotes WHERE id=$1', [id]),
-  customerQuote: (id) => one('SELECT rfq_id, ref FROM customer_quotes WHERE id=$1', [id]),
-  email: (id) => one('SELECT rfq_id, job_id FROM emails WHERE id=$1', [id]),
-  job: (id) => one('SELECT rfq_id, id AS job_id, ref FROM jobs WHERE id=$1', [id]),
-  booking: (id) => one('SELECT j.rfq_id, j.id AS job_id, j.ref FROM bookings b JOIN jobs j ON j.id=b.job_id WHERE b.id=$1', [id]),
-  jobCost: (id) => one('SELECT j.rfq_id, j.id AS job_id, j.ref FROM job_costs c JOIN jobs j ON j.id=c.job_id WHERE c.id=$1', [id]),
-  jobFile: (id) => one('SELECT j.rfq_id, j.id AS job_id, j.ref FROM job_files f JOIN jobs j ON j.id=f.job_id WHERE f.id=$1', [id]),
-};
+import { recordOf as rfqOf } from '../lib/records.js';
 
 // "METHOD /path" (as declared in the routers) -> how to describe it.
 const P = (id) => Number(id) || null;

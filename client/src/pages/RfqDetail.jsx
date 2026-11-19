@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
+import { useCan } from '../components/session.js';
+import OwnerPicker from '../components/OwnerPicker.jsx';
 import { api } from '../api.js';
 import { useMeta } from '../components/meta.jsx';
-import { PageHeader, Card, Button, Badge, Table, Tabs, Modal, Field, Input, Textarea, Select, Check, Loading, ErrorBox, useLoad, useAction, money, fmtDate, fmtDateTime } from '../components/ui.jsx';
+import { ReadOnly, PageHeader, Card, Button, Badge, Table, Tabs, Modal, Field, Input, Textarea, Select, Check, Loading, ErrorBox, useLoad, useAction, money, fmtDate, fmtDateTime } from '../components/ui.jsx';
 import { ShipmentForm, AgentPicker, QuoteEditor, routeOf, cargoOf } from '../components/rfq.jsx';
 import CustomerQuoteTab from '../components/CustomerQuoteTab.jsx';
 import ActivityList from '../components/ActivityList.jsx';
@@ -34,6 +36,7 @@ function AlternativeButton({ rfq, linked }) {
 
 export default function RfqDetail() {
   const { id } = useParams();
+  const can = useCan();
   const d = useLoad(() => api.get(`/rfqs/${id}`), [id]);
   const [tab, setTab] = useState('agents');
   const [selection, setSelection] = useState({});
@@ -45,12 +48,14 @@ export default function RfqDetail() {
   if (d.loading && !d.data) return <Loading />;
   if (d.error) return <ErrorBox error={d.error} />;
   const { rfq, invites, quotes, emails, customerQuotes } = d.data;
+  const costs = can('costs.view');
+  const edit = can('rfqs.edit');
   const current = quotes.filter((q) => !q.superseded);
   const toReview = current.filter((q) => !q.verified && !q.declined).length;
   return (
     <>
       <PageHeader
-        actions={<div className="row gap-sm">{(d.data.jobs || []).map((j) => <Link key={j.id} className="btn btn-primary btn-sm" to={`/jobs/${j.id}`}>Job {j.ref}</Link>)}<AlternativeButton rfq={rfq} linked={d.data.linked} /></div>}
+        actions={<div className="row gap-sm"><OwnerPicker value={rfq.assigned_to} createdBy={rfq.created_by} endpoint={`/rfqs/${rfq.id}/owner`} disabled={!edit} />{(d.data.jobs || []).map((j) => <Link key={j.id} className="btn btn-primary btn-sm" to={`/jobs/${j.id}`}>Job {j.ref}</Link>)}<AlternativeButton rfq={rfq} linked={d.data.linked} /></div>}
         title={<>{rfq.ref} <Badge>{rfq.status}</Badge></>}
         sub={<>{rfq.requester_name ? <><b>{rfq.requester_name}</b> <Badge color={rfq.requester_role === 'agent' ? 'blue' : 'purple'}>{rfq.requester_role === 'agent' ? 'partner agent' : 'customer'}</Badge>{rfq.requester_ref ? ` ref ${rfq.requester_ref}` : ''}</> : 'No requester'} · {rfq.mode} · {routeOf(rfq)} · {cargoOf(rfq) || ''}</>}
       />
@@ -59,18 +64,17 @@ export default function RfqDetail() {
         onChange={setTab}
         tabs={[
           { key: 'agents', label: 'Agents & emails', count: invites.length },
-          { key: 'review', label: 'Agent quotes', count: toReview || null },
-          { key: 'compare', label: 'Compare' },
+          ...(costs ? [{ key: 'review', label: 'Agent quotes', count: toReview || null }, { key: 'compare', label: 'Compare' }] : []),
           { key: 'customer', label: rfq.requester_role === 'agent' ? 'Quote to agent' : 'Customer quote', count: customerQuotes.length || null },
           { key: 'shipment', label: 'Shipment details' },
           { key: 'history', label: 'History' },
         ]}
       />
-      {tab === 'agents' && <AgentsTab data={d.data} reload={d.reload} />}
-      {tab === 'review' && <ReviewTab data={d.data} reload={d.reload} />}
-      {tab === 'compare' && <CompareTab rfq={rfq} selection={selection} setSelection={setSelection} goQuote={() => setTab('customer')} />}
+      {tab === 'agents' && <ReadOnly when={!edit}><AgentsTab data={d.data} reload={d.reload} /></ReadOnly>}
+      {tab === 'review' && costs && <ReviewTab data={d.data} reload={d.reload} />}
+      {tab === 'compare' && costs && <CompareTab rfq={rfq} selection={selection} setSelection={setSelection} goQuote={() => setTab('customer')} />}
       {tab === 'customer' && <CustomerQuoteTab key={rfq.id} data={d.data} selection={selection} reload={d.reload} goCompare={() => setTab('compare')} />}
-      {tab === 'shipment' && <ShipmentTab data={d.data} reload={d.reload} />}
+      {tab === 'shipment' && <ReadOnly when={!edit}><ShipmentTab data={d.data} reload={d.reload} /></ReadOnly>}
       {tab === 'history' && <HistoryTab rfqId={rfq.id} />}
     </>
   );

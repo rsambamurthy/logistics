@@ -3,6 +3,7 @@
 import { q, one, tx } from '../db.js';
 import { randomTag } from '../lib/crypto.js';
 import { mailRequester, mailBookingAgent, filesForMail } from './requesterMail.js';
+import { ownJobSql } from '../lib/access.js';
 import { recordAgentBl, fileAttachments, documentsState } from './documents.js';
 import { applyMilestone, notifyMilestone, trackingState, trackUrlFor } from './tracking.js';
 import { bookingRequestEmail, customerBookingEmail, JOB_TAG_REGEX } from './templates.js';
@@ -60,6 +61,7 @@ export async function listJobs({ status, search } = {}) {
   const vals = [];
   if (status === 'active') where.push("j.status NOT IN ('completed','cancelled')");
   else if (status) { vals.push(status); where.push(`j.status=$${vals.length}`); }
+  if (ownJobSql('j')) where.push(ownJobSql('j'));
   if (search) { vals.push(`%${search}%`); where.push(`(j.ref ILIKE $${vals.length} OR r.ref ILIKE $${vals.length} OR a.company ILIKE $${vals.length} OR r.pol ILIKE $${vals.length} OR r.pod ILIKE $${vals.length} OR j.customer_ref ILIKE $${vals.length})`); }
   const rows = await q(
     `SELECT j.*, r.ref AS rfq_ref, r.mode, r.pol, r.pod, a.company AS customer,
@@ -304,7 +306,7 @@ export async function upcomingCutoffs(hours = 72) {
        (SELECT s.status IN ('sent','amended') FROM shipping_instructions s WHERE s.job_id=j.id) AS si_sent,
        (SELECT count(*)::int FROM job_files f WHERE f.job_id=j.id AND f.kind='vgm') AS vgm_files
      FROM bookings b JOIN jobs j ON j.id=b.job_id LEFT JOIN agents a ON a.id=b.agent_id
-     WHERE j.status NOT IN ('departed','arrived','completed','cancelled') AND b.cutoffs <> '{}'::jsonb`
+     WHERE j.status NOT IN ('departed','arrived','completed','cancelled') AND b.cutoffs <> '{}'::jsonb${ownJobSql('j') ? ` AND ${ownJobSql('j')}` : ''}`
   );
   const company = await getSetting('company');
   const due = cutoffsDue(rows, new Date(), hours, tzOffset(company?.country));
@@ -321,6 +323,6 @@ export async function jobCounts() {
             count(*) FILTER (WHERE status='booking_requested')::int AS booking_requested,
             count(*) FILTER (WHERE status='booked')::int AS booked,
             count(*) FILTER (WHERE status IN ('departed','arrived'))::int AS moving
-     FROM jobs`
+     FROM jobs j${ownJobSql('j') ? ` WHERE ${ownJobSql('j')}` : ''}`
   );
 }

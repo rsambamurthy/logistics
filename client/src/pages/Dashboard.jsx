@@ -4,34 +4,36 @@ import { api } from '../api.js';
 import { PageHeader, Card, Table, Badge, Stat, Button, Loading, ErrorBox, useLoad, fmtDate, Select } from '../components/ui.jsx';
 import { routeOf } from '../components/rfq.jsx';
 import SetupGuide from '../components/SetupGuide.jsx';
+import { useCan } from '../components/session.js';
 import { CutoffList } from '../components/jobs.jsx';
 
 export default function Dashboard() {
   const nav = useNavigate();
   const stats = useLoad(() => api.get('/dashboard'));
-  const list = useLoad(() => api.get('/rfqs'));
+  const can = useCan();
+  const list = useLoad(() => (can('rfqs.view') ? api.get('/rfqs') : Promise.resolve([])));
   const [filter, setFilter] = useState('');
   const rows = (list.data || []).filter((r) => !filter || r.status === filter);
   return (
     <>
-      <PageHeader title="RFQs" sub="Enquiries from customers and partner agents, and the rates collected for them" actions={<Button onClick={() => nav('/rfqs/new')}>+ New RFQ</Button>} />
-      <SetupGuide />
+      <PageHeader title={can('rfqs.view') ? 'RFQs' : 'Home'} sub={can('rfqs.view') ? 'Enquiries from customers and partner agents, and the rates collected for them' : undefined} actions={can('rfqs.edit') && <Button onClick={() => nav('/rfqs/new')}>+ New RFQ</Button>} />
+      {can('settings.manage') && <SetupGuide />}
       {stats.data && (
         <div className="stats">
-          <Stat label="New enquiries by email" value={stats.data.new_enquiries} tone={stats.data.new_enquiries ? 'warn' : ''} />
-          <Stat label="Open (waiting for agents)" value={stats.data.open} />
-          <Stat label="Agent quotes to review" value={stats.data.needs_review} tone={stats.data.needs_review ? 'warn' : ''} />
-          <Stat label="Quotes awaiting approval" value={stats.data.approvals_pending} tone={stats.data.approvals_pending ? 'warn' : ''} />
-          <Stat label="Quoted to customer" value={stats.data.quoted} />
-          <Stat label="Awarded" value={stats.data.awarded} />
-          <Stat label="Unmatched emails" value={stats.data.unmatched} tone={stats.data.unmatched ? 'warn' : ''} />
-          <Stat label="Rate cards expiring in 7 days" value={stats.data.rate_cards_expiring} tone={stats.data.rate_cards_expiring ? 'warn' : ''} />
-          <Stat label="Jobs waiting for booking" value={(stats.data.jobs?.open || 0) + (stats.data.jobs?.booking_requested || 0)} tone={stats.data.jobs?.open ? 'warn' : ''} />
-          <Stat label="Jobs booked / moving" value={(stats.data.jobs?.booked || 0) + (stats.data.jobs?.moving || 0)} />
+          {stats.data.new_enquiries != null && <Stat label="New enquiries by email" value={stats.data.new_enquiries} tone={stats.data.new_enquiries ? 'warn' : ''} />}
+          {stats.data.open != null && <Stat label="Open (waiting for agents)" value={stats.data.open} />}
+          {stats.data.needs_review != null && <Stat label="Agent quotes to review" value={stats.data.needs_review} tone={stats.data.needs_review ? 'warn' : ''} />}
+          {stats.data.approvals_pending != null && <Stat label="Quotes awaiting approval" value={stats.data.approvals_pending} tone={stats.data.approvals_pending ? 'warn' : ''} />}
+          {stats.data.quoted != null && <Stat label="Quoted to customer" value={stats.data.quoted} />}
+          {stats.data.awarded != null && <Stat label="Awarded" value={stats.data.awarded} />}
+          {stats.data.unmatched != null && <Stat label="Unmatched emails" value={stats.data.unmatched} tone={stats.data.unmatched ? 'warn' : ''} />}
+          {stats.data.rate_cards_expiring != null && <Stat label="Rate cards expiring in 7 days" value={stats.data.rate_cards_expiring} tone={stats.data.rate_cards_expiring ? 'warn' : ''} />}
+          {stats.data.jobs && <Stat label="Jobs waiting for booking" value={(stats.data.jobs.open || 0) + (stats.data.jobs.booking_requested || 0)} tone={stats.data.jobs.open ? 'warn' : ''} />}
+          {stats.data.jobs && <Stat label="Jobs booked / moving" value={(stats.data.jobs.booked || 0) + (stats.data.jobs.moving || 0)} />}
         </div>
       )}
       {stats.data?.cutoffs?.length ? <Card title="Cut-offs in the next 3 days" actions={<Button small variant="ghost" onClick={() => nav('/jobs')}>All jobs</Button>}><CutoffList rows={stats.data.cutoffs} /></Card> : null}
-      <Card title="All RFQs" actions={<Select value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="All statuses" options={['new', 'draft', 'sent', 'quoting', 'quoted', 'awarded', 'lost', 'expired', 'closed']} />}>
+      {can('rfqs.view') && <Card title="All RFQs" actions={<Select value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="All statuses" options={['new', 'draft', 'sent', 'quoting', 'quoted', 'awarded', 'lost', 'expired', 'closed']} />}>
         {list.loading ? <Loading /> : list.error ? <ErrorBox error={list.error} /> : (
           <Table
             rows={rows}
@@ -49,7 +51,7 @@ export default function Dashboard() {
             ]}
           />
         )}
-      </Card>
+      </Card>}
     </>
   );
 }

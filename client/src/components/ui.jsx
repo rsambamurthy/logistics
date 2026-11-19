@@ -239,3 +239,14 @@ export function SideMenu({ title, items }) {
     </nav>
   );
 }
+
+/** Show content but switch off every button and field inside it (for roles that may look but not change). */
+export function ReadOnly({ when, note = "View only — your role can't change this.", children }) {
+  if (!when) return children;
+  return (
+    <fieldset disabled className="readonly">
+      <div className="readonly-note small muted">{note}</div>
+      {children}
+    </fieldset>
+  );
+}

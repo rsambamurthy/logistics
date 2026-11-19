@@ -20,14 +20,15 @@ import JobDetail from './pages/JobDetail.jsx';
 import Track from './pages/Track.jsx';
 
 function Shell({ user, tenant, access, onLogout }) {
+  const perms = user.perms || [];
   const nav = [
-    ['/', 'RFQs'],
-    ['/rfqs/new', '+ New RFQ'],
-    ['/jobs', 'Jobs'],
-    ['/inbox', 'Unmatched mail'],
-    ['/reports', 'Reports'],
+    ['/', 'RFQs', 'rfqs.view'],
+    ['/rfqs/new', '+ New RFQ', 'rfqs.edit'],
+    ['/jobs', 'Jobs', 'jobs.view'],
+    ['/inbox', 'Unmatched mail', 'inbox.view'],
+    ['/reports', 'Reports', 'reports.view'],
     ['/settings', 'Settings'],
-  ];
+  ].filter(([, , p]) => !p || perms.includes(p));
   return (
     <div className="shell">
       <aside className="side">

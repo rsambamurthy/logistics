@@ -195,3 +195,13 @@ textarea.input { resize: vertical; }
 
 .table tr.row-muted td { color: var(--muted); }
 .table tr.row-muted td .badge { opacity: .8; }
+
+fieldset.readonly { border: 0; padding: 0; margin: 0; min-width: 0; }
+fieldset.readonly .readonly-note { margin: 0 0 10px; }
+fieldset.readonly .btn { opacity: .5; cursor: not-allowed; }
+.owner-picker { display: inline-flex; align-items: center; gap: 6px; } .owner-picker .input { width: auto; padding: 4px 8px; }
+.roles-grid th.center, .roles-grid td.center { text-align: center; }
+.roles-grid th { vertical-align: bottom; min-width: 110px; }
+.roles-grid th:first-child { min-width: 320px; }
+.roles-grid .group-row td { background: var(--bg-soft, #f4f6fa); }
+.roles-grid input[type=checkbox] { width: 17px; height: 17px; }

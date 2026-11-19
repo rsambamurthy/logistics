@@ -1,7 +1,6 @@
 // Tenant subscription: plan choice, Razorpay checkout, webhook.
 import express from 'express';
 import { pq, pone } from '../db.js';
-import { requireAdmin } from '../auth.js';
 import { getTenant, updateTenant, accessState, usage, clearTenantCache } from '../services/tenants.js';
 import { onSubscriptionEvent } from '../services/lifecycle.js';
 import { razorpayEnabled, createPlan, createSubscription, updateSubscription, cancelSubscription, getSubscription, verifyWebhook, statusFromRazorpay } from '../services/razorpay.js';
@@ -23,7 +22,7 @@ async function summary(req) {
 router.get('/', h(async (req, res) => res.json(await summary(req))));
 
 /** Start or change a subscription. Returns a Razorpay payment link for new subscriptions. */
-router.post('/subscribe', requireAdmin, h(async (req, res) => {
+router.post('/subscribe', h(async (req, res) => {
   const plan = await pone('SELECT * FROM plans WHERE code=$1 AND active', [req.body.plan_code]);
   if (!plan) return res.status(400).json({ error: 'Unknown plan' });
   const t = await getTenant(req.tenant.id, { fresh: true });
@@ -55,7 +54,7 @@ router.post('/refresh', h(async (req, res) => {
   res.json(await summary(req));
 }));
 
-router.post('/cancel', requireAdmin, h(async (req, res) => {
+router.post('/cancel', h(async (req, res) => {
   const t = await getTenant(req.tenant.id, { fresh: true });
   if (!t.razorpay_subscription_id) return res.status(400).json({ error: 'No online subscription to cancel' });
   await cancelSubscription(t.razorpay_subscription_id);

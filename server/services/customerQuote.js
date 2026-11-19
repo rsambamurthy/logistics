@@ -56,7 +56,7 @@ export async function previewCustomerQuote(rfqId, body) {
 }
 
 const minMargin = (snap) => Math.min(...snap.options.map((o) => o.totals.margin_pct_effective));
-const canApprove = (user) => ['admin', 'manager'].includes(user?.role);
+const canApprove = (user) => !!user?.perms?.includes('quotes.approve');
 
 export async function saveCustomerQuote(rfqId, body, user) {
   const pricing = await getSetting('pricing');
@@ -78,7 +78,7 @@ export async function saveCustomerQuote(rfqId, body, user) {
 }
 
 export async function decideApproval(quoteId, user, { approve, note }) {
-  if (!canApprove(user)) throw err('Only managers or admins can approve quotes', 403);
+  if (!canApprove(user)) throw err('Your role cannot approve quotations below the minimum margin', 403);
   const cq = await one('SELECT * FROM customer_quotes WHERE id=$1', [quoteId]);
   if (cq.approval_status !== 'pending') throw err('This quote is not waiting for approval');
   await q('UPDATE customer_quotes SET approval_status=$1, approved_by=$2, approval_note=$3 WHERE id=$4', [approve ? 'approved' : 'rejected', user.id, note || null, quoteId]);

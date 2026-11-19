@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../api.js';
 import { useMeta } from './meta.jsx';
-import { useSession } from './session.js';
+import { useSession, useCan } from './session.js';
 import { Card, Button, Badge, Table, Modal, Field, Input, Textarea, Select, Loading, ErrorBox, useLoad, useAction, money, fmtDate } from './ui.jsx';
 import { EmailPreviewNote } from './rfqBits.jsx';
 
@@ -57,7 +57,8 @@ export default function CustomerQuoteTab({ data, selection, reload, goCompare })
   const session = useSession();
   const { rfq, customerQuotes } = data;
   const isAgent = rfq.requester_role === 'agent';
-  const canApprove = ['admin', 'manager'].includes(session.user?.role);
+  const can = useCan();
+  const canApprove = can('quotes.approve');
   const settings = useLoad(() => api.get('/settings'));
   const family = useLoad(() => api.get(`/rfqs/${rfq.id}/family`), [rfq.id]);
   const requester = useLoad(() => (rfq.requester_id ? api.get('/agents').then((l) => l.find((c) => c.id === rfq.requester_id)) : null), [rfq.requester_id]);
@@ -110,7 +111,7 @@ export default function CustomerQuoteTab({ data, selection, reload, goCompare })
 
   return (
     <>
-      <Card
+      {can('quotes.prepare') && <Card
         title={isAgent ? `Quote for partner agent ${rfq.requester_name || ''}` : 'Build quotation'}
         actions={<>
           <Button small variant="ghost" onClick={() => addOption()}>+ Add option</Button>
@@ -169,7 +170,7 @@ export default function CustomerQuoteTab({ data, selection, reload, goCompare })
             {preview?.options && <div className="row end"><Button busy={busy === 'save'} onClick={save}>{below ? (canApprove ? 'Approve & create quotation' : 'Request approval') : 'Create quotation'}</Button></div>}
           </div>
         )}
-      </Card>
+      </Card>}
 
       <Card title={isAgent ? 'Quotations sent to the agent' : 'Quotations'}>
         <Table
@@ -178,7 +179,7 @@ export default function CustomerQuoteTab({ data, selection, reload, goCompare })
           columns={[
             { key: 'ref', label: 'Ref', render: (r) => <><b>{r.ref}</b>{r.snapshot?.options?.length > 1 && <div className="small muted">{r.snapshot.options.length} options</div>}</> },
             { label: 'Total', render: (r) => (r.snapshot?.options?.length > 1 ? r.snapshot.options.map((o, i) => <div key={i} className="small">{o.label}: {money(o.totals.grand_total, r.currency)}</div>) : money(r.snapshot?.totals?.grand_total, r.currency)) },
-            { label: 'Profit', render: (r) => `${money(r.snapshot?.totals?.profit, r.currency)} (${r.snapshot?.totals?.margin_pct_effective}%)` },
+            ...(can('costs.view') ? [{ label: 'Profit', render: (r) => `${money(r.snapshot?.totals?.profit, r.currency)} (${r.snapshot?.totals?.margin_pct_effective}%)` }] : []),
             { label: 'Valid until', render: (r) => fmtDate(r.valid_until) },
             {
               label: 'Status', render: (r) => (
@@ -201,11 +202,11 @@ export default function CustomerQuoteTab({ data, selection, reload, goCompare })
                     <Button small busy={busy === `ap${r.id}`} onClick={() => run(`ap${r.id}`, async () => { await api.post(`/customer-quotes/${r.id}/approval`, { approve: true }); await reload(); }, 'Approved')}>Approve</Button>
                     <Button small variant="ghost" onClick={() => { const note = prompt('Reason for not approving?') ?? ''; run(`rj${r.id}`, async () => { await api.post(`/customer-quotes/${r.id}/approval`, { approve: false, note }); await reload(); }, 'Not approved'); }}>Reject</Button>
                   </>}
-                  {['draft', 'sent'].includes(r.status) && !['pending', 'rejected'].includes(r.approval_status) && <Button small variant="ghost" onClick={() => setSendTo({ quote: r, to: requester.data?.email || '' })}>{r.status === 'sent' ? 'Resend' : 'Email'}</Button>}
-                  {r.status === 'sent' && <Button small variant="ghost" busy={busy === `f${r.id}`} onClick={() => run(`f${r.id}`, async () => { await api.post(`/customer-quotes/${r.id}/follow-up`); await reload(); }, 'Follow-up email sent')}>Follow up</Button>}
-                  {['sent', 'expired', 'draft'].includes(r.status) && <Button small variant="ghost" onClick={() => setLost({ quote: r, reason: '', note: '' })}>Lost</Button>}
-                  {['sent', 'draft', 'expired'].includes(r.status) && !['pending', 'rejected'].includes(r.approval_status) && <Button small onClick={() => setAccepting({ quote: r, option: 0 })}>Accepted → award</Button>}
-                  {r.status === 'accepted' && (jobOf(r) ? <Link className="btn btn-primary btn-sm" to={`/jobs/${jobOf(r).id}`}>Job {jobOf(r).ref}</Link> : <Button small busy={busy === `j${r.id}`} onClick={() => run(`j${r.id}`, async () => { const x = await api.post(`/customer-quotes/${r.id}/job`, { option: r.accepted_option || 0 }); navTo(`/jobs/${x.job.id}`); })}>Open job</Button>)}
+                  {can('quotes.send') && ['draft', 'sent'].includes(r.status) && !['pending', 'rejected'].includes(r.approval_status) && <Button small variant="ghost" onClick={() => setSendTo({ quote: r, to: requester.data?.email || '' })}>{r.status === 'sent' ? 'Resend' : 'Email'}</Button>}
+                  {can('quotes.send') && r.status === 'sent' && <Button small variant="ghost" busy={busy === `f${r.id}`} onClick={() => run(`f${r.id}`, async () => { await api.post(`/customer-quotes/${r.id}/follow-up`); await reload(); }, 'Follow-up email sent')}>Follow up</Button>}
+                  {can('quotes.decide') && ['sent', 'expired', 'draft'].includes(r.status) && <Button small variant="ghost" onClick={() => setLost({ quote: r, reason: '', note: '' })}>Lost</Button>}
+                  {can('quotes.decide') && ['sent', 'draft', 'expired'].includes(r.status) && !['pending', 'rejected'].includes(r.approval_status) && <Button small onClick={() => setAccepting({ quote: r, option: 0 })}>Accepted → award</Button>}
+                  {r.status === 'accepted' && (jobOf(r) ? can('jobs.view') && <Link className="btn btn-primary btn-sm" to={`/jobs/${jobOf(r).id}`}>Job {jobOf(r).ref}</Link> : can('jobs.manage') && <Button small busy={busy === `j${r.id}`} onClick={() => run(`j${r.id}`, async () => { const x = await api.post(`/customer-quotes/${r.id}/job`, { option: r.accepted_option || 0 }); navTo(`/jobs/${x.job.id}`); })}>Open job</Button>)}
                 </div>
               ),
             },

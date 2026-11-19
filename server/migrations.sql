@@ -280,3 +280,15 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS session_epoch INT NOT NULL DEFAULT 0;
 -- 15. Admins can disable users (kept for history, cannot sign in, do not count as a seat)
 ALTER TABLE users ADD COLUMN IF NOT EXISTS disabled_at TIMESTAMPTZ;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS disabled_by TEXT;
+
+-- 16. Roles and permissions; record owners for "own records only" roles
+CREATE TABLE IF NOT EXISTS roles (
+  key TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  description TEXT,
+  permissions TEXT[] NOT NULL DEFAULT '{}',
+  system BOOLEAN NOT NULL DEFAULT false,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+ALTER TABLE rfqs ADD COLUMN IF NOT EXISTS assigned_to INT;
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS assigned_to INT;

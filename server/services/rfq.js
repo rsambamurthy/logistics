@@ -1,4 +1,5 @@
 // RFQ lifecycle: create, invite agents, send, remind, compare, award.
+import { ownRfqSql, andOwn } from '../lib/access.js';
 import { q, one, tx } from '../db.js';
 import { randomTag } from '../lib/crypto.js';
 import { getMailbox, sendMail } from './mail.js';
@@ -109,7 +110,7 @@ export async function loadRfq(id) {
   const customerQuotes = await q('SELECT * FROM customer_quotes WHERE rfq_id=$1 ORDER BY id DESC', [id]);
   const sourceEmail = rfq.source_email_id ? emails.find((e) => e.id === rfq.source_email_id) || null : null;
   const root = rfq.parent_rfq_id || rfq.id;
-  const linked = await q('SELECT id, ref, mode, status FROM rfqs WHERE (id=$1 OR parent_rfq_id=$1) AND id<>$2 ORDER BY id', [root, rfq.id]);
+  const linked = await q(`SELECT id, ref, mode, status FROM rfqs r WHERE (id=$1 OR parent_rfq_id=$1) AND id<>$2${andOwn(ownRfqSql('r'))} ORDER BY id`, [root, rfq.id]);
   const jobs = await q('SELECT id, ref, status, customer_quote_id FROM jobs WHERE rfq_id=$1 OR customer_quote_id = ANY($2) ORDER BY id', [id, customerQuotes.map((c) => c.id)]);
   return { rfq, invites, quotes, emails, customerQuotes, sourceEmail, linked, jobs };
 }

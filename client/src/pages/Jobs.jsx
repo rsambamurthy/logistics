@@ -2,9 +2,11 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api.js';
 import { PageHeader, Card, Table, Input, Select, Loading, ErrorBox, useLoad, money, fmtDate } from '../components/ui.jsx';
+import { useCan } from '../components/session.js';
 import { StatusBadge, JOB_STATUS, CutoffList, fmtLocal } from '../components/jobs.jsx';
 
 export default function Jobs() {
+  const can = useCan();
   const nav = useNavigate();
   const [status, setStatus] = useState('active');
   const [search, setSearch] = useState('');
@@ -34,7 +36,7 @@ export default function Jobs() {
               { label: 'Route', render: (r) => `${r.mode || ''} ${[r.pol, r.pod].filter(Boolean).join(' → ')}` },
               { label: 'Bookings', render: (r) => `${r.confirmed}/${r.bookings} confirmed`, align: 'center' },
               { label: 'ETD', render: (r) => (r.etd ? fmtLocal(r.etd) : '—') },
-              { label: 'Profit', render: (r) => <span className={r.profit.profit < 0 ? 'err' : ''}>{money(r.profit.profit, r.profit.currency)}</span>, align: 'right' },
+              ...(can('costs.view') ? [{ label: 'Profit', render: (r) => <span className={r.profit?.profit < 0 ? 'err' : ''}>{money(r.profit?.profit, r.profit?.currency)}</span>, align: 'right' }] : []),
               { label: 'Status', render: (r) => <StatusBadge status={r.status} /> },
               { label: 'Opened', render: (r) => fmtDate(r.created_at) },
             ]}

@@ -5,6 +5,7 @@ import { one, q, pq, runAsTenant, currentTenant } from './db.js';
 import crypto from 'node:crypto';
 import { getTenant, tenantForEmail, accessState, assertCanAddUser } from './services/tenants.js';
 import { sendInvite } from './services/accountTokens.js';
+import { permissionsFor, roleExists } from './services/roles.js';
 
 const SECRET = () => process.env.APP_SECRET || (process.env.NODE_ENV === 'production' ? null : 'dev-only-secret-change-me');
 const COOKIE = 'aq_session';
@@ -64,7 +65,7 @@ export async function requireAuth(req, res, next) {
       if (!u || u.disabled_at || (u.session_epoch || 0) !== (p.ep || 0)) return res.status(401).json({ error: 'Not signed in' });
       delete u.session_epoch;
       delete u.disabled_at;
-      req.user = { ...u, platform_admin: isPlatformAdmin(u.email) };
+      req.user = { ...u, platform_admin: isPlatformAdmin(u.email), perms: await permissionsFor(u.role) };
       req.tenant = tenant;
       req.access = accessState(tenant);
       next();
@@ -74,8 +75,9 @@ export async function requireAuth(req, res, next) {
   });
 }
 
+/** Kept for routers outside the permission map; same as the users.manage permission. */
 export function requireAdmin(req, res, next) {
-  if (req.user?.role !== 'admin') return res.status(403).json({ error: 'Admin only' });
+  if (!req.user?.perms?.includes('users.manage')) return res.status(403).json({ error: 'Admin only' });
   next();
 }
 
@@ -99,7 +101,7 @@ export async function createUser({ email, name, role = 'user' }) {
   const mail = String(email || '').toLowerCase().trim();
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(mail)) throw err('Enter a valid email address', 400);
   if ((await pq('SELECT 1 FROM accounts WHERE email=$1', [mail])).length) throw err('This email is already used by another account', 400);
-  if (!['user', 'manager', 'admin'].includes(role)) throw err('Unknown role', 400);
+  if (!(await roleExists(role))) throw err('Unknown role', 400);
   await assertCanAddUser(t);
   const placeholder = await bcrypt.hash(crypto.randomBytes(24).toString('hex'), 10); // unusable until they set a password
   const u = await one('INSERT INTO users(email,name,password_hash,role) VALUES($1,$2,$3,$4) RETURNING id,email,name,role', [mail, name || mail, placeholder, role]);
@@ -121,7 +123,6 @@ export async function listUsers() {
   return q('SELECT id,email,name,role,created_at,email_verified_at,disabled_at,disabled_by FROM users ORDER BY disabled_at IS NOT NULL, id');
 }
 
-const ROLES = ['user', 'manager', 'admin'];
 const activeAdmins = async () => (await one("SELECT count(*)::int AS n FROM users WHERE role='admin' AND disabled_at IS NULL")).n;
 
 /**
@@ -139,7 +140,7 @@ export async function updateUser(userId, { name, role, email }, actor) {
     patch.name = n.slice(0, 120);
   }
   if (role !== undefined && role !== u.role) {
-    if (!ROLES.includes(role)) throw err('Unknown role', 400);
+    if (!(await roleExists(role))) throw err('Unknown role', 400);
     if (u.id === actor.id) throw err("You can't change your own role. Ask another admin.", 400);
     if (u.role === 'admin' && !u.disabled_at && (await activeAdmins()) <= 1) throw err('Keep at least one active admin. Make someone else an admin first.', 400);
     patch.role = role;

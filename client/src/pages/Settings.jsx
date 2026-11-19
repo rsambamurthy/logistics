@@ -1,5 +1,7 @@
 import { useState } from 'react';
 import { useParams } from 'react-router-dom';
+import { useCan } from '../components/session.js';
+import Roles from './Roles.jsx';
 import RateCards from './RateCards.jsx';
 import Agents from './Agents.jsx';
 import Customers from './Customers.jsx';
@@ -8,24 +10,26 @@ import Activity from './Activity.jsx';
 import { Tenants, Plans } from './Platform.jsx';
 import { api } from '../api.js';
 import { useMeta } from '../components/meta.jsx';
-import { PageHeader, Card, Table, Button, Modal, FormGrid, Field, Input, Select, Check, Badge, SideMenu, Loading, useLoad, useAction, useToast, fmtDateTime } from '../components/ui.jsx';
+import { ReadOnly, PageHeader, Card, Table, Button, Modal, FormGrid, Field, Input, Select, Check, Badge, SideMenu, Loading, useLoad, useAction, useToast, fmtDateTime } from '../components/ui.jsx';
 
 // Settings holds everything that is not a transaction: contacts, pricing data and system setup.
 const SECTIONS = [
   { group: 'Contacts' },
-  { key: 'partner-agents', label: 'Partner agents', hint: 'Who you ask for rates' },
-  { key: 'customers', label: 'Customers', hint: 'Who asks you for rates' },
+  // view = permission to see the page; edit = permission to change it (otherwise shown read-only)
+  { key: 'partner-agents', label: 'Partner agents', hint: 'Who you ask for rates', edit: 'contacts.manage' },
+  { key: 'customers', label: 'Customers', hint: 'Who asks you for rates', edit: 'contacts.manage' },
   { group: 'Pricing' },
-  { key: 'rate-cards', label: 'Rate cards', hint: 'Stored buy rates that price RFQs instantly' },
-  { key: 'pricing', label: 'Pricing & FX', hint: 'Margins, tax, validity, exchange rates' },
+  { key: 'rate-cards', label: 'Rate cards', hint: 'Stored buy rates that price RFQs instantly', view: 'costs.view', edit: 'ratecards.manage' },
+  { key: 'pricing', label: 'Pricing & FX', hint: 'Margins, tax, validity, exchange rates', view: 'settings.manage' },
   { group: 'System' },
-  { key: 'mailboxes', label: 'RFQ mailboxes', hint: 'Addresses used to email agents and read replies' },
-  { key: 'company', label: 'Company', hint: 'Details printed on quotations' },
-  { key: 'ai', label: 'AI', hint: 'Reading replies and enquiries' },
-  { key: 'tracking', label: 'Tracking', hint: 'Live tracking and customer updates' },
-  { key: 'users', label: 'Users', hint: 'Who can sign in' },
+  { key: 'mailboxes', label: 'RFQ mailboxes', hint: 'Addresses used to email agents and read replies', view: 'settings.manage' },
+  { key: 'company', label: 'Company', hint: 'Details printed on quotations', view: 'settings.manage' },
+  { key: 'ai', label: 'AI', hint: 'Reading replies and enquiries', view: 'settings.manage' },
+  { key: 'tracking', label: 'Tracking', hint: 'Live tracking and customer updates', view: 'settings.manage' },
+  { key: 'users', label: 'Users', hint: 'Who can sign in', view: 'users.manage' },
+  { key: 'roles', label: 'Roles', hint: 'What each role can see and do', view: 'users.manage' },
   { key: 'subscription', label: 'Subscription', hint: 'Plan, usage and billing' },
-  { key: 'activity', label: 'Activity log', hint: 'Who did what, and when' },
+  { key: 'activity', label: 'Activity log', hint: 'Who did what, and when', view: 'audit.view' },
   { group: 'Integrata admin', platform: true },
   { key: 'tenants', label: 'Tenants', hint: 'All companies on the platform', platform: true },
   { key: 'plans', label: 'Plans', hint: 'Prices and limits', platform: true },
@@ -34,22 +38,29 @@ const SECTIONS = [
 export default function Settings({ user }) {
   const { section = 'partner-agents' } = useParams();
   const s = useLoad(() => api.get('/settings'));
-  const admin = user.role === 'admin';
-  const current = SECTIONS.find((x) => x.key === section) || SECTIONS[1];
+  const can = useCan();
+  const visible = SECTIONS.filter((x) => (x.platform ? user.platform_admin : !x.view || can(x.view)));
+  // drop group headings with nothing under them
+  const items = visible.filter((x, i) => !x.group || (visible[i + 1] && !visible[i + 1].group));
+  const current = items.find((x) => x.key === section) || items.find((x) => x.key);
+  if (!current) return <div className="alert alert-amber">Your role has no settings to show.</div>;
+  const readOnly = current.edit && !can(current.edit);
   return (
     <div className="with-subnav">
-      <SideMenu title="Settings" items={SECTIONS.filter((x) => !x.platform || user.platform_admin).map((x) => (x.group ? x : { to: `/settings/${x.key}`, label: x.label, hint: x.hint }))} />
+      <SideMenu title="Settings" items={items.map((x) => (x.group ? x : { to: `/settings/${x.key}`, label: x.label, hint: x.hint }))} />
       <div className="subnav-body">
-        {!admin && !['subscription', 'activity'].includes(current.key) && <div className="alert alert-amber">Only admins can change settings.</div>}
+        <ReadOnly when={readOnly}>
         {current.key === 'mailboxes' && <><PageHeader title="RFQ mailboxes" /><Mailboxes /></>}
         {current.key === 'rate-cards' && <RateCards />}
         {current.key === 'partner-agents' && <Agents />}
-        {current.key === 'subscription' && <Subscription admin={admin} />}
-        {current.key === 'activity' && (admin ? <Activity /> : <div className="alert alert-amber">Only admins can see the activity log.</div>)}
+        {current.key === 'subscription' && <Subscription admin={can('billing.manage')} />}
+        {current.key === 'activity' && <Activity />}
         {current.key === 'tenants' && user.platform_admin && <Tenants />}
         {current.key === 'plans' && user.platform_admin && <Plans />}
         {current.key === 'customers' && <Customers />}
-        {current.key === 'users' && <><PageHeader title="Users" /><Users admin={admin} me={user} /></>}
+        {current.key === 'users' && <><PageHeader title="Users" /><Users admin me={user} /></>}
+        {current.key === 'roles' && <Roles />}
+        </ReadOnly>
         {['ai', 'tracking', 'company', 'pricing'].includes(current.key) && (!s.data ? <Loading /> : (
           <>
             <PageHeader title={current.label} sub={current.hint} />
@@ -275,15 +286,12 @@ function PricingSettings({ data, onSaved }) {
   );
 }
 
-const ROLE_OPTIONS = [
-  { value: 'user', label: 'User' },
-  { value: 'manager', label: 'Manager (approves low-margin quotes)' },
-  { value: 'admin', label: 'Admin (everything incl. settings)' },
-];
-const roleName = (r) => ({ user: 'User', manager: 'Manager', admin: 'Admin' }[r] || r);
 
 function Users({ admin, me }) {
   const list = useLoad(() => api.get('/users').catch(() => []));
+  const roles = useLoad(() => api.get('/roles').catch(() => []));
+  const ROLE_OPTIONS = (roles.data || []).map((r) => ({ value: r.key, label: r.description ? `${r.name} — ${r.description}` : r.name }));
+  const roleName = (k) => roles.data?.find((r) => r.key === k)?.name || k;
   const [f, setF] = useState(null);
   const [edit, setEdit] = useState(null);
   const [off, setOff] = useState(null);

@@ -1,13 +1,15 @@
 import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { api } from '../api.js';
-import { PageHeader, Card, Button, Badge, Table, Tabs, Modal, Field, Input, Textarea, Select, Check, Loading, ErrorBox, useLoad, useAction, money, fmtDate, fmtDateTime } from '../components/ui.jsx';
+import { ReadOnly, PageHeader, Card, Button, Badge, Table, Tabs, Modal, Field, Input, Textarea, Select, Check, Loading, ErrorBox, useLoad, useAction, money, fmtDate, fmtDateTime } from '../components/ui.jsx';
 import { useMeta } from '../components/meta.jsx';
 import { routeOf, cargoOf } from '../components/rfq.jsx';
 import { StatusBadge, BOOKING_STATUS, PartyFields, BookingForm, BookingSummary, ProfitSummary, LegList } from '../components/jobs.jsx';
 import ActivityList from '../components/ActivityList.jsx';
 import JobDocuments from '../components/JobDocuments.jsx';
 import JobTracking from '../components/JobTracking.jsx';
+import OwnerPicker from '../components/OwnerPicker.jsx';
+import { useCan } from '../components/session.js';
 
 
 function Overview({ d, set, reload }) {
@@ -36,7 +38,7 @@ function Overview({ d, set, reload }) {
           <div><dt>Customer told</dt><dd>{job.customer_notified_at ? fmtDateTime(job.customer_notified_at) : 'Not yet'}</dd></div>
           <div><dt>Departed</dt><dd>{job.atd ? fmtDate(job.atd) : '—'}</dd></div>
           <div><dt>Arrived</dt><dd>{job.ata ? fmtDate(job.ata) : '—'}</dd></div>
-          <div><dt>Profit</dt><dd className={d.profit.profit < 0 ? 'err' : ''}>{money(d.profit.profit, d.profit.currency)}</dd></div>
+          {d.profit && <div><dt>Profit</dt><dd className={d.profit.profit < 0 ? 'err' : ''}>{money(d.profit.profit, d.profit.currency)}</dd></div>}
         </dl>
       </Card>
       <JobTracking d={d} set={set} />
@@ -233,6 +235,7 @@ function Emails({ d, set }) {
 }
 
 export default function JobDetail() {
+  const can = useCan();
   const { id } = useParams();
   const d = useLoad(() => api.get(`/jobs/${id}`), [id]);
   const history = useLoad(() => api.get(`/audit?job=${id}&days=3650`), [id, d.data]);
@@ -248,24 +251,26 @@ export default function JobDetail() {
   const toCheck = d.data.bookings.filter((b) => b.source?.startsWith('ai') && !b.verified).length;
   return (
     <>
-      <PageHeader title={<>{job.ref} <StatusBadge status={job.status} /></>} sub={<>{job.customer || '—'} · {rfq?.mode} · {rfq ? routeOf(rfq) : ''}{job.customer_ref ? ` · ref ${job.customer_ref}` : ''}</>} />
+      <PageHeader actions={<OwnerPicker value={job.assigned_to} createdBy={job.created_by} endpoint={`/jobs/${job.id}/owner`} disabled={!can('jobs.manage')} />} title={<>{job.ref} <StatusBadge status={job.status} /></>} sub={<>{job.customer || '—'} · {rfq?.mode} · {rfq ? routeOf(rfq) : ''}{job.customer_ref ? ` · ref ${job.customer_ref}` : ''}</>} />
       <Tabs
         active={tab}
         onChange={setTab}
         tabs={[
           { key: 'overview', label: 'Overview' },
           { key: 'bookings', label: 'Bookings', count: toCheck || null },
-          { key: 'costs', label: 'Costs & profit' },
+          ...(can('costs.view') ? [{ key: 'costs', label: 'Costs & profit' }] : []),
           { key: 'docs', label: 'Documents', count: d.data.docs.checklist.filter((r) => r.status === 'missing').length + d.data.docs.bls.filter((b) => ['received', 'customer_corrections', 'customer_approved'].includes(b.status)).length || null },
           { key: 'emails', label: 'Emails', count: d.data.emails.length || null },
           { key: 'history', label: 'History' },
         ]}
       />
+      <ReadOnly when={!can('jobs.manage')}>
       {tab === 'overview' && <Overview d={d.data} set={set} />}
       {tab === 'bookings' && <Bookings d={d.data} set={set} />}
-      {tab === 'costs' && <Costs d={d.data} set={set} />}
+      {tab === 'costs' && can('costs.view') && <Costs d={d.data} set={set} />}
       {tab === 'docs' && <JobDocuments d={d.data} set={set} />}
       {tab === 'emails' && <Emails d={d.data} set={set} />}
+      </ReadOnly>
       {tab === 'history' && <Card title="History">{history.loading && !history.data ? <Loading /> : <ActivityList rows={history.data || []} showRfq={false} />}</Card>}
     </>
   );

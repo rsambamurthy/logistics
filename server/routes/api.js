@@ -1,7 +1,7 @@
 import express from 'express';
 import multer from 'multer';
 import { q, one, runAsTenant } from '../db.js';
-import { requireAuth, requireAdmin, requireActiveSubscription, createUser, resendInvite, login, logout, issue, listUsers, updateUser, setUserDisabled, decode } from '../auth.js';
+import { requireAuth, requireActiveSubscription, createUser, resendInvite, login, logout, issue, listUsers, updateUser, setUserDisabled, decode } from '../auth.js';
 import { LEGS, BASES, CHARGE_CODES, MODES, INCOTERMS, CURRENCIES, CONTAINER_TYPES, LEG_CODES } from '../engines/charges.js';
 import { getAllPublic, setSetting, saveAi, saveTracking } from '../services/settings.js';
 import { encrypt } from '../lib/crypto.js';
@@ -24,6 +24,9 @@ import { createJobFromQuote, listJobs, loadJob, updateJob, setMilestone, sendBoo
 import { setDocRequirement, requestDocuments, getSi, saveSi, prefillSi, renderSiPdf, sendSi, readBl, uploadBl, sendBlToCustomer, customerDecision, replyAgentOnBl, setFileKind, onCustomerJobEmail } from '../services/documents.js';
 import { publicTracking, tenantOfToken, refreshJob, addTrackingNumber, removeTracking, setJobTracking, resetTrackLink, trackToken, notifyMilestone, providerList } from '../services/tracking.js';
 import { sendStoredFile } from '../lib/security.js';
+import { authorize, ownRfqSql, andOwn } from '../lib/access.js';
+import { listRoles, saveRole, deleteRole } from '../services/roles.js';
+import { PERMISSION_GROUPS } from '../engines/permissions.js';
 import billing from './billing.js';
 import platform from './platform.js';
 
@@ -103,25 +106,31 @@ function tenantView(t) {
 r.use(requireAuth);
 r.use(auditMiddleware);
 r.use(requireActiveSubscription);
+r.use(authorize);
 r.use('/billing', billing.router);
 r.use('/platform', platform);
 
-r.get('/meta', (req, res) => res.json({ languages: LANGUAGES, roles: ['user', 'manager', 'admin'], legs: LEGS, bases: BASES, charges: CHARGE_CODES.map(({ synonyms, ...c }) => c), modes: MODES, incoterms: INCOTERMS, currencies: CURRENCIES, containerTypes: CONTAINER_TYPES }));
+r.get('/meta', (req, res) => res.json({ languages: LANGUAGES, permissions: PERMISSION_GROUPS, legs: LEGS, bases: BASES, charges: CHARGE_CODES.map(({ synonyms, ...c }) => c), modes: MODES, incoterms: INCOTERMS, currencies: CURRENCIES, containerTypes: CONTAINER_TYPES }));
 
 // ---------- users ----------
-r.get('/users', requireAdmin, h(async (req, res) => res.json(await listUsers())));
-r.post('/users', requireAdmin, h(async (req, res) => res.json(await createUser(req.body))));
-r.put('/users/:id', requireAdmin, h(async (req, res) => res.json(await updateUser(id(req), req.body, req.user))));
-r.post('/users/:id/disable', requireAdmin, h(async (req, res) => res.json(await setUserDisabled(id(req), true, req.user))));
-r.post('/users/:id/enable', requireAdmin, h(async (req, res) => res.json(await setUserDisabled(id(req), false, req.user))));
-r.post('/users/:id/resend-invite', requireAdmin, h(async (req, res) => { await resendInvite(id(req)); res.json({ ok: true }); }));
+r.get('/users', h(async (req, res) => res.json(await listUsers())));
+r.post('/users', h(async (req, res) => res.json(await createUser(req.body))));
+r.put('/users/:id', h(async (req, res) => res.json(await updateUser(id(req), req.body, req.user))));
+r.post('/users/:id/disable', h(async (req, res) => res.json(await setUserDisabled(id(req), true, req.user))));
+r.post('/users/:id/enable', h(async (req, res) => res.json(await setUserDisabled(id(req), false, req.user))));
+r.get('/roles', h(async (req, res) => res.json(await listRoles())));
+r.post('/roles', h(async (req, res) => res.json(await saveRole(null, req.body))));
+r.put('/roles/:key', h(async (req, res) => res.json(await saveRole(req.params.key, req.body))));
+r.delete('/roles/:key', h(async (req, res) => res.json(await deleteRole(req.params.key))));
+r.get('/users/assignable', h(async (req, res) => res.json(await q('SELECT id, name, email FROM users WHERE disabled_at IS NULL ORDER BY name'))));
+r.post('/users/:id/resend-invite', h(async (req, res) => { await resendInvite(id(req)); res.json({ ok: true }); }));
 
 // ---------- settings ----------
 r.get('/settings', h(async (req, res) => res.json(await getAllPublic())));
-r.put('/settings/tracking', requireAdmin, h(async (req, res) => { await saveTracking(req.body); res.json(await getAllPublic()); }));
+r.put('/settings/tracking', h(async (req, res) => { await saveTracking(req.body); res.json(await getAllPublic()); }));
 r.get('/tracking/providers', h(async (req, res) => res.json(providerList())));
-r.put('/settings/ai', requireAdmin, h(async (req, res) => { await saveAi(req.body); res.json(await getAllPublic()); }));
-r.put('/settings/:key', requireAdmin, h(async (req, res) => {
+r.put('/settings/ai', h(async (req, res) => { await saveAi(req.body); res.json(await getAllPublic()); }));
+r.put('/settings/:key', h(async (req, res) => {
   if (!['company', 'fx', 'pricing'].includes(req.params.key)) return res.status(400).json({ error: 'Unknown setting' });
   await setSetting(req.params.key, req.body);
   res.json(await getAllPublic());
@@ -150,10 +159,10 @@ async function saveMailbox(mbId, body) {
   if (!count.n && !cols.includes('is_default')) { cols.push('is_default'); vals.push(true); }
   return one(`INSERT INTO mailboxes(${cols.join(',')}) VALUES(${cols.map((_, i) => `$${i + 1}`).join(',')}) RETURNING *`, vals);
 }
-r.post('/mailboxes', requireAdmin, h(async (req, res) => res.json(publicMb(await saveMailbox(null, req.body)))));
-r.put('/mailboxes/:id', requireAdmin, h(async (req, res) => res.json(publicMb(await saveMailbox(id(req), req.body)))));
-r.delete('/mailboxes/:id', requireAdmin, h(async (req, res) => { await q('UPDATE mailboxes SET active=false WHERE id=$1', [id(req)]); res.json({ ok: true }); }));
-r.post('/mailboxes/:id/test', requireAdmin, h(async (req, res) => {
+r.post('/mailboxes', h(async (req, res) => res.json(publicMb(await saveMailbox(null, req.body)))));
+r.put('/mailboxes/:id', h(async (req, res) => res.json(publicMb(await saveMailbox(id(req), req.body)))));
+r.delete('/mailboxes/:id', h(async (req, res) => { await q('UPDATE mailboxes SET active=false WHERE id=$1', [id(req)]); res.json({ ok: true }); }));
+r.post('/mailboxes/:id/test', h(async (req, res) => {
   const mb = await getMailbox(id(req));
   const out = { smtp: null, imap: null };
   try { await testSmtp(mb); out.smtp = { ok: true }; } catch (e) { out.smtp = { ok: false, error: e.message }; }
@@ -216,14 +225,26 @@ r.get('/dashboard', h(async (req, res) => {
     count(*) FILTER (WHERE status IN ('sent','quoting'))::int AS open,
     count(*) FILTER (WHERE status='quoted')::int AS quoted,
     count(*) FILTER (WHERE status='awarded')::int AS awarded,
-    count(*) FILTER (WHERE created_at > now()-interval '30 days')::int AS last30 FROM rfqs`);
-  const review = await one(`SELECT count(*)::int AS n FROM agent_quotes q JOIN rfqs r ON r.id=q.rfq_id WHERE NOT q.verified AND NOT q.superseded AND NOT q.declined AND r.status IN ('sent','quoting')`);
+    count(*) FILTER (WHERE created_at > now()-interval '30 days')::int AS last30 FROM rfqs r${ownRfqSql('r') ? ` WHERE ${ownRfqSql('r')}` : ''}`);
+  const review = await one(`SELECT count(*)::int AS n FROM agent_quotes q JOIN rfqs r ON r.id=q.rfq_id WHERE NOT q.verified AND NOT q.superseded AND NOT q.declined AND r.status IN ('sent','quoting')${andOwn(ownRfqSql('r'))}`);
   const unmatched = await one(`SELECT count(*)::int AS n FROM emails WHERE direction='in' AND invite_id IS NULL AND parse_status='unmatched'`);
   const errors = await one(`SELECT count(*)::int AS n FROM emails WHERE parse_status='error'`);
-  const approvals = await one("SELECT count(*)::int AS n FROM customer_quotes WHERE approval_status='pending'");
+  const approvals = await one(`SELECT count(*)::int AS n FROM customer_quotes c JOIN rfqs r ON r.id=c.rfq_id WHERE c.approval_status='pending'${andOwn(ownRfqSql('r'))}`);
   const rc = await expiringCount();
-  const [jobs, cutoffs] = await Promise.all([jobCounts(), upcomingCutoffs(72)]);
-  res.json({ ...s, jobs, cutoffs, approvals_pending: approvals.n, rate_cards_expiring: rc.expiring, rate_cards_expired: rc.expired, needs_review: review.n, unmatched: unmatched.n, parse_errors: errors.n });
+  const p = req.user.perms;
+  const jobsOk = p.includes('jobs.view');
+  const [jobs, cutoffs] = jobsOk ? await Promise.all([jobCounts(), upcomingCutoffs(72)]) : [null, []];
+  // only what this role may see
+  res.json({
+    ...(p.includes('rfqs.view') ? s : {}),
+    jobs, cutoffs,
+    approvals_pending: p.includes('quotes.approve') ? approvals.n : null,
+    rate_cards_expiring: p.includes('costs.view') ? rc.expiring : null,
+    rate_cards_expired: p.includes('costs.view') ? rc.expired : null,
+    needs_review: p.includes('costs.view') ? review.n : null,
+    unmatched: p.includes('inbox.view') ? unmatched.n : null,
+    parse_errors: p.includes('inbox.view') ? errors.n : null,
+  });
 }));
 
 r.get('/rfqs', h(async (req, res) => {
@@ -231,7 +252,7 @@ r.get('/rfqs', h(async (req, res) => {
     (SELECT count(*)::int FROM rfq_invites i WHERE i.rfq_id=r.id) AS invites,
     (SELECT count(*)::int FROM rfq_invites i WHERE i.rfq_id=r.id AND i.replied_at IS NOT NULL) AS replies,
     (SELECT count(*)::int FROM agent_quotes q WHERE q.rfq_id=r.id AND NOT q.superseded AND NOT q.verified AND NOT q.declined) AS to_review
-    FROM rfqs r LEFT JOIN agents p ON p.id=r.requester_id ORDER BY r.id DESC LIMIT 500`));
+    FROM rfqs r LEFT JOIN agents p ON p.id=r.requester_id ${ownRfqSql('r') ? `WHERE ${ownRfqSql('r')}` : ''} ORDER BY r.id DESC LIMIT 500`));
 }));
 r.post('/enquiry/parse', h(async (req, res) => res.json(await parseEnquiry(req.body.text || ''))));
 r.post('/rfqs', h(async (req, res) => {
@@ -248,6 +269,12 @@ r.get('/rfqs/:id', h(async (req, res) => {
   res.json(d);
 }));
 r.put('/rfqs/:id', h(async (req, res) => res.json(await updateRfq(id(req), req.body))));
+r.put('/rfqs/:id/owner', h(async (req, res) => {
+  const owner = req.body.user_id ? Number(req.body.user_id) : null;
+  if (owner && !(await one('SELECT 1 FROM users WHERE id=$1 AND disabled_at IS NULL', [owner]))) return res.status(400).json({ error: 'Choose an active user' });
+  await q('UPDATE rfqs SET assigned_to=$1 WHERE id=$2', [owner, id(req)]);
+  res.json({ ok: true, assigned_to: owner });
+}));
 r.post('/rfqs/:id/status', h(async (req, res) => { await q('UPDATE rfqs SET status=$1 WHERE id=$2', [req.body.status, id(req)]); res.json({ ok: true }); }));
 r.post('/rfqs/:id/send', h(async (req, res) => res.json(await sendRfq(id(req)))));
 r.post('/rfqs/:id/own-rates', h(async (req, res) => res.json(await ownRatesInvite(id(req)))));
@@ -336,7 +363,13 @@ r.put('/agent-quotes/:id', h(async (req, res) => {
 r.post('/rfqs/:id/customer-quote/preview', h(async (req, res) => res.json(await previewCustomerQuote(id(req), req.body))));
 r.post('/rfqs/:id/customer-quotes', h(async (req, res) => res.json(await saveCustomerQuote(id(req), req.body, req.user))));
 r.post('/customer-quotes/:id/approval', h(async (req, res) => { await decideApproval(id(req), req.user, req.body); res.json({ ok: true }); }));
-r.get('/rfqs/:id/family', h(async (req, res) => res.json(await rfqFamily(id(req)))));
+r.get('/rfqs/:id/family', h(async (req, res) => {
+  const fam = await rfqFamily(id(req));
+  const own = ownRfqSql('r');
+  if (!own) return res.json(fam);
+  const ok = new Set((await q(`SELECT r.id FROM rfqs r WHERE r.id = ANY($1) AND ${own}`, [fam.map((x) => x.id)])).map((x) => x.id));
+  res.json(fam.filter((x) => ok.has(x.id)));
+}));
 r.post('/rfqs/:id/duplicate', h(async (req, res) => {
   await assertCanCreateRfq(req.tenant);
   const rfq = await duplicateRfq(id(req), req.body, req.user.id);
@@ -375,6 +408,12 @@ r.get('/jobs', h(async (req, res) => res.json(await listJobs(req.query))));
 r.get('/jobs/cutoffs', h(async (req, res) => res.json(await upcomingCutoffs(Number(req.query.hours) || 72))));
 r.get('/jobs/:id', h(async (req, res) => res.json(await loadJob(id(req)))));
 r.put('/jobs/:id', h(async (req, res) => res.json(await updateJob(id(req), req.body))));
+r.put('/jobs/:id/owner', h(async (req, res) => {
+  const owner = req.body.user_id ? Number(req.body.user_id) : null;
+  if (owner && !(await one('SELECT 1 FROM users WHERE id=$1 AND disabled_at IS NULL', [owner]))) return res.status(400).json({ error: 'Choose an active user' });
+  await q('UPDATE jobs SET assigned_to=$1 WHERE id=$2', [owner, id(req)]);
+  res.json(await loadJob(id(req)));
+}));
 r.post('/jobs/:id/milestone', h(async (req, res) => res.json(await setMilestone(id(req), req.body))));
 r.post('/jobs/:id/send-bookings', h(async (req, res) => res.json(await sendAllBookingRequests(id(req), req.body, req.user))));
 r.post('/jobs/:id/notify-customer', h(async (req, res) => res.json(await sendCustomerConfirmation(id(req), req.body, req.user))));

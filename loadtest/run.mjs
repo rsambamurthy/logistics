@@ -49,7 +49,7 @@ async function scenario(name, tenants, connections, build) {
   };
   merged.error_pct = Number((((merged.errors + merged.non_2xx - merged.status_429) / Math.max(1, total)) * 100).toFixed(2));
   summary.push(merged);
-  console.log(JSON.stringify(merged));
+  console.log(`RESULT ${JSON.stringify(merged)}`);
   return merged;
 }
 
@@ -107,11 +107,11 @@ const reads = (t) => [
     const secs = (Date.now() - t0) / 1000;
     const r = { scenario: `incoming email burst (${n} emails)`, seconds: Number(secs.toFixed(1)), per_second: Number((n / secs).toFixed(1)) };
     summary.push(r);
-    console.log(JSON.stringify(r));
+    console.log(`RESULT ${JSON.stringify(r)}`);
   }
 
   console.log('\n===== SUMMARY =====');
-  for (const s of summary) console.log(JSON.stringify(s));
+  for (const s of summary) console.log(`RESULT ${JSON.stringify(s)}`);
   console.log('===== END =====');
   process.exit(0);
 })().catch((e) => {

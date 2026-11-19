@@ -32,12 +32,20 @@ export function runAsTenant(tenant, fn) {
 }
 export const currentTenant = () => store.getStore() || null;
 
+/** Point a pooled connection at a schema; skipped when the connection is already there (saves a round trip). */
+async function useSchema(client, schema) {
+  if (client.qSchema === schema) return;
+  client.qSchema = undefined; // unknown until the SET succeeds
+  await client.query(`SET search_path TO "${schema}"`);
+  client.qSchema = schema;
+}
+
 async function scoped(fn) {
   const t = currentTenant();
   if (!t) throw new Error('No tenant context for a tenant query');
   const client = await pool.connect();
   try {
-    await client.query(`SET search_path TO "${t.schema}"`);
+    await useSchema(client, t.schema);
     return await fn(client);
   } finally {
     client.release();
@@ -72,7 +80,7 @@ export async function tx(fn) {
 export async function pq(text, params = []) {
   const client = await pool.connect();
   try {
-    await client.query('SET search_path TO public');
+    await useSchema(client, 'public');
     return (await client.query(text, params)).rows;
   } finally {
     client.release();
@@ -91,7 +99,7 @@ export async function migrateTenant(schema) {
   const client = await pool.connect();
   try {
     await client.query(`CREATE SCHEMA IF NOT EXISTS "${schema}"`);
-    await client.query(`SET search_path TO "${schema}"`);
+    await useSchema(client, schema);
     await client.query(read('schema.sql'));
     await client.query(read('migrations.sql'));
   } finally {

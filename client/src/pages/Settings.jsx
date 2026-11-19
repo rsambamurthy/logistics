@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, Navigate } from 'react-router-dom';
 import { useCan } from '../components/session.js';
 import Roles from './Roles.jsx';
 import RateCards from './RateCards.jsx';
@@ -17,11 +17,11 @@ import ApprovalLevels from '../components/ApprovalLevels.jsx';
 // Settings holds everything that is not a transaction: contacts, pricing data and system setup.
 const SECTIONS = [
   { group: 'Contacts' },
-  // view = permission to see the page; edit = permission to change it (otherwise shown read-only)
-  { key: 'partner-agents', label: 'Partner agents', hint: 'Who you ask for rates', edit: 'contacts.manage' },
-  { key: 'customers', label: 'Customers', hint: 'Who asks you for rates', edit: 'contacts.manage' },
+  // view = permission to see the page (no page without it); edit = permission to change it (otherwise shown read-only)
+  { key: 'partner-agents', label: 'Partner agents', hint: 'Who you ask for rates', view: 'contacts.manage' },
+  { key: 'customers', label: 'Customers', hint: 'Who asks you for rates', view: 'contacts.manage' },
   { group: 'Pricing' },
-  { key: 'rate-cards', label: 'Rate cards', hint: 'Stored buy rates that price RFQs instantly', view: 'costs.view', edit: 'ratecards.manage' },
+  { key: 'rate-cards', label: 'Rate cards', hint: 'Stored buy rates that price RFQs instantly', view: 'ratecards.manage' },
   { key: 'pricing', label: 'Pricing & FX', hint: 'Margins, tax, validity, exchange rates', view: 'settings.manage' },
   { group: 'System' },
   { key: 'mailboxes', label: 'RFQ mailboxes', hint: 'Addresses used to email agents and read replies', view: 'settings.manage' },
@@ -30,22 +30,29 @@ const SECTIONS = [
   { key: 'tracking', label: 'Tracking', hint: 'Live tracking and customer updates', view: 'settings.manage' },
   { key: 'users', label: 'Users', hint: 'Who can sign in', view: 'users.manage' },
   { key: 'roles', label: 'Roles', hint: 'What each role can see and do', view: 'users.manage' },
-  { key: 'subscription', label: 'Subscription', hint: 'Plan, usage and billing' },
+  { key: 'subscription', label: 'Subscription', hint: 'Plan, usage and billing', view: 'billing.manage' },
   { key: 'activity', label: 'Activity log', hint: 'Who did what, and when', view: 'audit.view' },
   { group: 'Integrata admin', platform: true },
   { key: 'tenants', label: 'Tenants', hint: 'All companies on the platform', platform: true },
   { key: 'plans', label: 'Plans', hint: 'Prices and limits', platform: true },
 ];
 
+/** Settings pages this user's roles allow (group headings with nothing under them dropped). */
+export function settingsSections(user) {
+  const perms = user?.perms || [];
+  const visible = SECTIONS.filter((x) => (x.platform ? user?.platform_admin : !x.view || perms.includes(x.view)));
+  return visible.filter((x, i) => !x.group || (visible[i + 1] && !visible[i + 1].group));
+}
+
 export default function Settings({ user }) {
-  const { section = 'partner-agents' } = useParams();
+  const { section } = useParams();
   const s = useLoad(() => api.get('/settings'));
   const can = useCan();
-  const visible = SECTIONS.filter((x) => (x.platform ? user.platform_admin : !x.view || can(x.view)));
-  // drop group headings with nothing under them
-  const items = visible.filter((x, i) => !x.group || (visible[i + 1] && !visible[i + 1].group));
-  const current = items.find((x) => x.key === section) || items.find((x) => x.key);
-  if (!current) return <div className="alert alert-amber">Your role has no settings to show.</div>;
+  const items = settingsSections(user);
+  const current = items.find((x) => x.key === section);
+  const first = items.find((x) => x.key);
+  if (!first) return <div className="alert alert-amber">Your role has no settings to show.</div>;
+  if (!current) return <Navigate to={`/settings/${first.key}`} replace />;
   const readOnly = current.edit && !can(current.edit);
   return (
     <div className="with-subnav">

@@ -14,7 +14,7 @@ import RfqNew from './pages/RfqNew.jsx';
 import RfqDetail from './pages/RfqDetail.jsx';
 import Inbox from './pages/Inbox.jsx';
 import Reports from './pages/Reports.jsx';
-import Settings from './pages/Settings.jsx';
+import Settings, { settingsSections } from './pages/Settings.jsx';
 import Jobs from './pages/Jobs.jsx';
 import JobDetail from './pages/JobDetail.jsx';
 import Track from './pages/Track.jsx';
@@ -27,8 +27,8 @@ function Shell({ user, tenant, access, onLogout }) {
     ['/jobs', 'Jobs', 'jobs.view'],
     ['/inbox', 'Unmatched mail', 'inbox.view'],
     ['/reports', 'Reports', 'reports.view'],
-    ['/settings', 'Settings'],
-  ].filter(([, , p]) => !p || perms.includes(p));
+    ['/settings', 'Settings', settingsSections(user).some((x) => x.key)],
+  ].filter(([, , p]) => (typeof p === 'boolean' ? p : !p || perms.includes(p)));
   return (
     <div className="shell">
       <aside className="side">
@@ -41,7 +41,7 @@ function Shell({ user, tenant, access, onLogout }) {
         </div>
       </aside>
       <main className="main">
-        <AccessBanner access={access} />
+        <AccessBanner access={access} user={user} />
         <Routes>
           <Route path="/" element={<Dashboard />} />
           <Route path="/rfqs/new" element={<RfqNew />} />
@@ -53,7 +53,7 @@ function Shell({ user, tenant, access, onLogout }) {
           <Route path="/agents" element={<Navigate to="/settings/partner-agents" replace />} />
           <Route path="/customers" element={<Navigate to="/settings/customers" replace />} />
           <Route path="/rate-cards" element={<Navigate to="/settings/rate-cards" replace />} />
-          <Route path="/settings" element={<Navigate to="/settings/partner-agents" replace />} />
+          <Route path="/settings" element={<Settings user={user} />} />
           <Route path="/settings/:section" element={<Settings user={user} />} />
           <Route path="*" element={<Navigate to="/" />} />
         </Routes>
@@ -62,10 +62,12 @@ function Shell({ user, tenant, access, onLogout }) {
   );
 }
 
-function AccessBanner({ access }) {
+function AccessBanner({ access, user }) {
   if (!access) return null;
-  if (!access.ok) return <div className="banner banner-red">{access.message} <Link to="/settings/subscription">Choose a plan →</Link></div>;
-  if (access.state === 'trialing' && access.trial_days_left <= 7) return <div className="banner banner-amber">Your free trial ends in {access.trial_days_left} day(s). <Link to="/settings/subscription">Choose a plan →</Link></div>;
+  const canBill = (user?.perms || []).includes('billing.manage');
+  const Plan = () => (canBill ? <Link to="/settings/subscription">Choose a plan →</Link> : <span>Ask your administrator to choose a plan.</span>);
+  if (!access.ok) return <div className="banner banner-red">{access.message} <Plan /></div>;
+  if (access.state === 'trialing' && access.trial_days_left <= 7) return <div className="banner banner-amber">Your free trial ends in {access.trial_days_left} day(s). <Plan /></div>;
   return null;
 }
 

@@ -83,6 +83,11 @@ export const ROUTES = {
   'PUT /agent-quotes/:id': { perm: 'rfqs.edit', costs: true, via: 'agentQuote' },
 
   'GET /inbox/count': { perm: 'inbox.view' },
+  'GET /rate-mail': { perm: 'ratecards.manage' },
+  'GET /rate-mail/:id': { perm: 'ratecards.manage' },
+  'POST /rate-mail/:id/read': { perm: 'ratecards.manage' },
+  'POST /rate-mail/:id/apply': { perm: 'ratecards.manage' },
+  'POST /rate-mail/:id/dismiss': { perm: 'ratecards.manage' },
   'GET /inbox/unmatched': { perm: 'inbox.view' },
   'GET /emails/:id': { perm: ['rfqs.view', 'jobs.view', 'inbox.view'], via: 'email' },
   'POST /emails/:id/assign': { perm: 'inbox.view', via: 'email' },

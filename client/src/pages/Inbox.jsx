@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { api } from '../api.js';
 import { PageHeader, Card, Table, Button, Modal, Field, Select, Loading, useLoad, useAction, fmtDateTime } from '../components/ui.jsx';
 import { EmailView } from './RfqDetail.jsx';
+import { useCan } from '../components/session.js';
 
 export default function Inbox() {
   const list = useLoad(() => api.get('/inbox/unmatched'), [], { refresh: 30000 });
@@ -13,7 +14,7 @@ export default function Inbox() {
         {list.loading ? <Loading /> : (
           <Table rows={list.data} empty="All incoming emails were matched." onRowClick={setOpen} columns={[
             { key: 'from_addr', label: 'From' },
-            { key: 'subject', label: 'Subject', render: (e) => <b>{e.subject}</b> },
+            { key: 'subject', label: 'Subject', render: (e) => <><b>{e.subject}</b>{e.parse_status === 'no_rates' && <div className="small muted">read as a rate sheet: no rates found</div>}{e.parse_status === 'error' && e.parse_error && <div className="small err">{e.parse_error}</div>}</> },
             { key: 'preview', label: 'Preview', render: (e) => <span className="small muted">{e.preview?.slice(0, 140)}</span> },
             { key: 'at', label: 'Received', render: (e) => fmtDateTime(e.at) },
           ]} />
@@ -31,10 +32,17 @@ function AssignModal({ email, onClose, onDone }) {
   const detail = useLoad(() => (rfqId ? api.get(`/rfqs/${rfqId}`) : null), [rfqId]);
   const [inviteId, setInviteId] = useState('');
   const [busy, run] = useAction();
+  const can = useCan();
   const open = (rfqs.data || []).filter((r) => ['sent', 'quoting', 'quoted'].includes(r.status));
   return (
     <Modal wide title="Link this email" onClose={onClose} footer={<>
       <Button variant="ghost" busy={busy === 'new'} onClick={() => run('new', async () => { const r = await api.post(`/emails/${email.id}/create-rfq`); onDone(); window.location.assign(`/rfqs/${r.id}`); }, 'RFQ created from this enquiry')}>It's a new enquiry → create RFQ</Button>
+      {can('ratecards.manage') && <Button variant="ghost" busy={busy === 'rs'} onClick={() => run('rs', async () => {
+        const r = await api.post(`/rate-mail/${email.id}/read`);
+        onDone();
+        if (r.status === 'rates_pending') window.location.assign('/settings/rate-cards');
+        else throw new Error('No rates found in this email.');
+      }, 'Rates read: review them under Rate cards')}>It's a rate sheet → update rate cards</Button>}
       <Button variant="ghost" busy={busy === 'ig'} onClick={() => run('ig', async () => { await api.post(`/emails/${email.id}/ignore`); onDone(); }, 'Ignored')}>Ignore</Button>
       <Button busy={busy === 'as'} disabled={!inviteId} onClick={() => run('as', async () => { await api.post(`/emails/${email.id}/assign`, { invite_id: Number(inviteId) }); onDone(); }, 'Linked and read with AI')}>Link & read with AI</Button>
     </>}>

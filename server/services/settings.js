@@ -46,6 +46,7 @@ export const DEFAULTS = {
     key_enc: null,
     auto_parse: true,
     review_threshold: 0.75,
+    auto_apply_rates: false, // rate sheets by email: apply without review
   },
 };
 
@@ -69,10 +70,10 @@ export async function getAllPublic() {
   return out;
 }
 
-export async function saveAi({ api_key, ...rest }) {
+export async function saveAi({ api_key, remove_key, ...rest }) {
   const patch = { ...rest };
   if (api_key) patch.key_enc = encrypt(api_key);
-  if (api_key === '') patch.key_enc = null;
+  if (remove_key) patch.key_enc = null; // a blank key box keeps the stored key
   return setSetting('ai', patch);
 }
 
@@ -91,10 +92,10 @@ export async function getFx() {
   return getSetting('fx');
 }
 
-export async function saveTracking({ api_key, ...rest }) {
+export async function saveTracking({ api_key, remove_key, ...rest }) {
   const patch = { ...rest };
   if (api_key) patch.key_enc = encrypt(api_key);
-  if (api_key === '') patch.key_enc = null;
+  if (remove_key) patch.key_enc = null; // a blank key box keeps the stored key
   return setSetting('tracking', patch);
 }
 

@@ -302,3 +302,7 @@ CREATE TABLE IF NOT EXISTS user_roles (
 INSERT INTO user_roles(user_id, role_key) SELECT u.id, u.role FROM users u WHERE u.role IS NOT NULL AND NOT EXISTS (SELECT 1 FROM user_roles ur WHERE ur.user_id=u.id);
 -- the approval level a pending quotation waits on (approval authority comes from roles, not permissions)
 ALTER TABLE customer_quotes ADD COLUMN IF NOT EXISTS approval_role TEXT;
+
+-- 18. Rate sheets arriving by email: AI-read rate cards waiting for review
+ALTER TABLE emails ADD COLUMN IF NOT EXISTS rate_proposal JSONB;
+CREATE INDEX IF NOT EXISTS emails_parse_status_idx ON emails(parse_status);

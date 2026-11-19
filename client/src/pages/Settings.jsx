@@ -189,7 +189,7 @@ function MailboxModal({ value, onClose, onDone }) {
 }
 
 function AiSettings({ data, onSaved }) {
-  const [f, setF] = useState({ model: data.ai.model, auto_parse: data.ai.auto_parse, review_threshold: data.ai.review_threshold, api_key: '' });
+  const [f, setF] = useState({ model: data.ai.model, auto_parse: data.ai.auto_parse, auto_apply_rates: !!data.ai.auto_apply_rates, review_threshold: data.ai.review_threshold, api_key: '' });
   const [busy, run] = useAction();
   return (
     <Card title="AI reply reader" actions={<Button busy={busy} onClick={() => run('x', async () => onSaved(await api.put('/settings/ai', f)), 'AI settings saved')}>Save</Button>}>
@@ -200,6 +200,7 @@ function AiSettings({ data, onSaved }) {
         <Field label="Review if confidence below" hint="0–1. Lower-confidence quotes are flagged for a person to check."><Input type="number" step="0.05" value={f.review_threshold} onChange={(e) => setF({ ...f, review_threshold: Number(e.target.value) })} /></Field>
       </div>
       <Check label="Read replies automatically as they arrive" checked={f.auto_parse} onChange={(v) => setF({ ...f, auto_parse: v })} />
+      <Check label="Update rate cards straight away when an agent emails a rate sheet (otherwise they wait for review under Rate cards)" checked={f.auto_apply_rates} onChange={(v) => setF({ ...f, auto_apply_rates: v })} />
     </Card>
   );
 }

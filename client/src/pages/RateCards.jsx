@@ -43,11 +43,12 @@ export default function RateCards() {
           <Button onClick={() => setEdit({ active: true, leg: 'freight', mode: 'FCL', lines: [] })}>+ New rate card</Button>
         </>}
       />
+      <RateMailPanel onApplied={() => list.reload()} />
       <Card actions={null}>
         <div className="row gap wrap filters" style={{ marginBottom: 12 }}>
           <Select placeholder="All legs" options={meta.legOptions} value={filters.leg} onChange={(e) => setFilters({ ...filters, leg: e.target.value })} />
           <Select placeholder="All vendors" options={[{ value: 'own', label: 'Our own rates' }, ...(vendors.data || []).map((v) => ({ value: v.id, label: v.company }))]} value={filters.vendor} onChange={(e) => setFilters({ ...filters, vendor: e.target.value })} />
-          <Select placeholder="Any source" options={[{ value: 'manual', label: 'Entered / imported' }, { value: 'memory', label: 'Remembered from agent quotes' }, { value: 'ai_import', label: 'Read by AI' }]} value={filters.source} onChange={(e) => setFilters({ ...filters, source: e.target.value })} />
+          <Select placeholder="Any source" options={[{ value: 'manual', label: 'Entered / imported' }, { value: 'memory', label: 'Remembered from agent quotes' }, { value: 'ai_import', label: 'Read by AI' }, { value: 'email', label: 'Updated from email' }]} value={filters.source} onChange={(e) => setFilters({ ...filters, source: e.target.value })} />
           <Select placeholder="Any status" options={[{ value: 'active', label: 'Active' }, { value: 'expiring', label: 'Expiring in 7 days' }, { value: 'expired', label: 'Expired' }]} value={filters.status} onChange={(e) => setFilters({ ...filters, status: e.target.value })} />
         </div>
         {list.loading ? <Loading /> : list.error ? <ErrorBox error={list.error} /> : (
@@ -56,7 +57,7 @@ export default function RateCards() {
             onRowClick={open}
             empty="No rate cards yet. Add one or import your Excel rate sheet."
             columns={[
-              { key: 'name', label: 'Rate card', render: (c) => <><b>{c.name}</b> {c.source === 'memory' && <Badge color="purple">remembered</Badge>}{c.source === 'ai_import' && <Badge color="blue">AI import</Badge>}</> },
+              { key: 'name', label: 'Rate card', render: (c) => <><b>{c.name}</b> {c.source === 'memory' && <Badge color="purple">remembered</Badge>}{c.source === 'ai_import' && <Badge color="blue">AI import</Badge>}{c.source === 'email' && <Badge color="blue">from email</Badge>}</> },
               { label: 'Vendor', render: (c) => c.vendor_name || <span className="muted">Own rates</span> },
               { label: 'Leg', render: (c) => meta.legName(c.leg) },
               { key: 'mode', label: 'Mode', render: (c) => c.mode || 'Any' },
@@ -184,20 +185,101 @@ function AiReadModal({ vendors, onClose, onDone }) {
           {result.notes && <div className="alert alert-amber small">{result.notes}</div>}
           {!result.cards.length && <div className="empty">No rates found in this file.</div>}
           {result.cards.map((c, i) => (
-            <div key={i} className="quote-card">
-              <label className="check"><input type="checkbox" checked={!!keep[i]} onChange={(e) => setKeep({ ...keep, [i]: e.target.checked })} /> <b>{c.name}</b></label>
-              <div className="small muted">{meta.legName(c.leg)} · {c.mode || 'Any mode'} · {c.origin || 'Any'}{c.destination ? ` → ${c.destination}` : ''}{c.carrier ? ` · ${c.carrier}` : ''} · valid {c.valid_from || '?'} – {c.valid_to || '?'}</div>
-              <table className="table compact">
-                <thead><tr><th>Charge</th><th>Basis</th><th>Container / break</th><th style={{ textAlign: 'right' }}>Rate</th></tr></thead>
-                <tbody>{c.lines.map((l, j) => (
-                  <tr key={j}><td>{l.description || meta.chargeName(l.charge_code)} <span className="muted small">{l.charge_code}</span></td><td>{meta.basisName(l.basis)}</td><td className="small">{l.equipment || ''}{l.qty_from !== null || l.qty_to !== null ? ` ${l.qty_from ?? 0}–${l.qty_to ?? '∞'}` : ''}{l.min_amount ? ` min ${l.min_amount}` : ''}</td><td style={{ textAlign: 'right' }}>{money(l.rate, l.currency)}</td></tr>
-                ))}</tbody>
-              </table>
-            </div>
+            <RateCardPreview key={i} card={c} checked={!!keep[i]} onCheck={(v) => setKeep({ ...keep, [i]: v })} />
           ))}
           <p className="muted small">You can edit any card after saving.</p>
         </div>
       )}
+    </Modal>
+  );
+}
+
+const lineKey = (l) => `${l.charge_code}|${l.equipment || ''}|${l.qty_from ?? ''}`;
+
+/** One AI-read rate card: lane, validity and charges; with `current`, shows the stored rate beside the new one. */
+export function RateCardPreview({ card: c, checked, onCheck, current }) {
+  const meta = useMeta();
+  const old = Object.fromEntries((current?.lines || []).map((l) => [lineKey(l), l]));
+  return (
+    <div className="quote-card">
+      <label className="check"><input type="checkbox" checked={checked} onChange={(e) => onCheck(e.target.checked)} /> <b>{c.name}</b>{' '}
+        {current ? <Badge color="amber">{`updates ${current.name}`}</Badge>
+          : c.follows_name ? <Badge color="blue">{`new card from ${c.valid_from}; ${c.follows_name} stays in use until then`}</Badge>
+          : c.match_id === null ? <Badge color="blue">new card</Badge> : null}
+      </label>
+      <div className="small muted">{meta.legName(c.leg)} · {c.mode || 'Any mode'} · {c.origin || 'Any'}{c.destination ? ` → ${c.destination}` : ''}{c.carrier ? ` · ${c.carrier}` : ''} · valid {c.valid_from || '?'} – {c.valid_to || '?'}
+        {current && <> (now {fmtDate(current.valid_from)} – {fmtDate(current.valid_to)})</>}</div>
+      <table className="table compact">
+        <thead><tr><th>Charge</th><th>Basis</th><th>Container / break</th>{current && <th style={{ textAlign: 'right' }}>Now</th>}<th style={{ textAlign: 'right' }}>{current ? 'New' : 'Rate'}</th></tr></thead>
+        <tbody>{c.lines.map((l, j) => {
+          const was = old[lineKey(l)];
+          const changed = current && (!was || Number(was.rate) !== Number(l.rate) || was.currency !== l.currency);
+          return (
+            <tr key={j}><td>{l.description || meta.chargeName(l.charge_code)} <span className="muted small">{l.charge_code}</span></td><td>{meta.basisName(l.basis)}</td>
+              <td className="small">{l.equipment || ''}{l.qty_from !== null || l.qty_to !== null ? ` ${l.qty_from ?? 0}–${l.qty_to ?? '∞'}` : ''}{l.min_amount ? ` min ${l.min_amount}` : ''}</td>
+              {current && <td style={{ textAlign: 'right' }} className="muted">{was ? money(was.rate, was.currency) : '—'}</td>}
+              <td style={{ textAlign: 'right' }}>{changed ? <b>{money(l.rate, l.currency)}</b> : money(l.rate, l.currency)}</td></tr>
+          );
+        })}</tbody>
+      </table>
+    </div>
+  );
+}
+
+/** Rate sheets that arrived by email and were read by the AI, waiting to be applied. */
+function RateMailPanel({ onApplied }) {
+  const list = useLoad(() => api.get('/rate-mail'), [], { refresh: 60000 });
+  const [open, setOpen] = useState(null);
+  if (!list.data?.length) return null;
+  return (
+    <Card title={`Rates received by email (${list.data.length})`} actions={<span className="muted small">Read by AI from agents' rate sheets. Check and apply to update your rate cards.</span>}>
+      <Table rows={list.data} onRowClick={(e) => setOpen(e.id)} columns={[
+        { label: 'From', render: (e) => <>{e.rate_proposal?.agent_name ? <b>{e.rate_proposal.agent_name}</b> : <span>{e.from_addr}</span>}{!e.rate_proposal?.agent_id && <div className="small muted">sender not in your partner agents</div>}</> },
+        { key: 'subject', label: 'Subject' },
+        { label: 'Cards', render: (e) => { const cs = e.rate_proposal?.cards || []; const up = cs.filter((c) => c.match_id).length; return <span className="small">{up ? `${up} update${up > 1 ? 's' : ''}` : ''}{up && cs.length - up ? ', ' : ''}{cs.length - up ? `${cs.length - up} new` : ''}</span>; } },
+        { label: 'Received', render: (e) => fmtDate(e.at) },
+        { label: '', render: () => <Button small variant="ghost">Review</Button> },
+      ]} />
+      {open && <RateMailModal id={open} onClose={() => setOpen(null)} onDone={() => { setOpen(null); list.reload(); onApplied(); }} />}
+    </Card>
+  );
+}
+
+function RateMailModal({ id, onClose, onDone }) {
+  const d = useLoad(() => api.get(`/rate-mail/${id}`), [id]);
+  const vendors = useLoad(() => api.get('/agents?role=agent'));
+  const [keep, setKeep] = useState(null);
+  const [agent, setAgent] = useState(undefined);
+  const [busy, run] = useAction();
+  if (!d.data) return <Modal title="Rates received by email" onClose={onClose}>{d.error ? <ErrorBox error={d.error} /> : <Loading />}</Modal>;
+  const p = d.data.rate_proposal;
+  const ticks = keep || Object.fromEntries(p.cards.map((_, i) => [i, true]));
+  const agentId = agent === undefined ? p.agent_id || '' : agent;
+  // a card only updates a stored card of the same agent
+  const sameAgent = String(agentId || '') === String(p.agent_id || '');
+  const n = Object.values(ticks).filter(Boolean).length;
+  const apply = () => run('apply', async () => {
+    const cards = p.cards.map((c, i) => ({ ...c, include: !!ticks[i], match_id: sameAgent ? c.match_id : null }));
+    await api.post(`/rate-mail/${id}/apply`, { cards, agent_id: agentId ? Number(agentId) : null });
+    onDone();
+  }, 'Rate cards updated');
+  const dismiss = () => run('dis', async () => { await api.post(`/rate-mail/${id}/dismiss`); onDone(); }, 'Dismissed');
+  return (
+    <Modal wide title={d.data.subject || 'Rates received by email'} onClose={onClose} footer={<>
+      <Button variant="ghost" busy={busy === 'dis'} onClick={dismiss}>Dismiss</Button>
+      <Button busy={busy === 'apply'} disabled={!n} onClick={apply}>Apply {n} card{n === 1 ? '' : 's'}</Button>
+    </>}>
+      <div className="stack">
+        <div className="small muted">From {d.data.from_addr} · received {fmtDate(d.data.at)}</div>
+        <Field label="Whose rates are these?" hint={p.agent_id ? 'Recognised from the sender’s email address.' : 'The sender is not one of your partner agents. Pick the agent, or keep them as your own rates.'}>
+          <Select placeholder="Our own rates" options={(vendors.data || []).map((v) => ({ value: v.id, label: v.company }))} value={agentId} onChange={(e) => setAgent(e.target.value)} />
+        </Field>
+        {p.notes && <div className="alert alert-amber small">{p.notes}</div>}
+        {p.cards.map((c, i) => (
+          <RateCardPreview key={i} card={sameAgent ? c : { ...c, match_id: null, follows_name: null }} current={sameAgent ? c.current : null} checked={!!ticks[i]} onCheck={(v) => setKeep({ ...ticks, [i]: v })} />
+        ))}
+        <p className="muted small">Applying replaces the rates and validity of the cards marked “updates” and adds the new ones. Every change is in the activity log.</p>
+      </div>
     </Modal>
   );
 }

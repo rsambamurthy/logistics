@@ -14,6 +14,7 @@ import { attachmentBlocks } from '../services/extract.js';
 import { parseEnquiry, readRateSheet } from '../services/ai.js';
 import { previewCustomerQuote, saveCustomerQuote, renderPdf, emailCustomerQuote, followUpQuote, markLost, LOST_REASONS, decideApproval, acceptQuote, rfqFamily, approvalFor, withApprovalRights, approvableRoles } from '../services/customerQuote.js';
 import { roleExists } from '../services/roles.js';
+import { readRatesFromEmail, pendingRateMail, rateProposal, applyRateProposal, dismissRateProposal } from '../services/rateMail.js';
 import { LANGUAGES } from '../services/i18n.js';
 import { reports } from '../services/reports.js';
 import { signUp, getTenant, accessState, usage, assertCanCreateRfq } from '../services/tenants.js';
@@ -317,6 +318,11 @@ r.post('/rate-cards/ai-read', upload.single('file'), h(async (req, res) => {
   res.json(await readRateSheet({ blocks, hint: req.body.hint }));
 }));
 r.post('/rate-cards/bulk', h(async (req, res) => res.json(await saveCards(req.body.cards || [], req.body.vendor_id || null))));
+r.get('/rate-mail', h(async (req, res) => res.json(await pendingRateMail())));
+r.get('/rate-mail/:id', h(async (req, res) => res.json(await rateProposal(id(req)))));
+r.post('/rate-mail/:id/read', h(async (req, res) => res.json(await readRatesFromEmail(id(req), req.user))));
+r.post('/rate-mail/:id/apply', h(async (req, res) => res.json(await applyRateProposal(id(req), { cards: req.body.cards, agentId: req.body.agent_id, user: req.user }))));
+r.post('/rate-mail/:id/dismiss', h(async (req, res) => res.json(await dismissRateProposal(id(req), req.user))));
 r.post('/agent-quotes/:id/remember', h(async (req, res) => res.json({ cards: await rememberQuote(id(req)) })));
 r.get('/rate-cards/:id', h(async (req, res) => res.json(await getCard(id(req)))));
 r.post('/rate-cards', h(async (req, res) => res.json(await saveCard(req.body))));
@@ -335,8 +341,10 @@ r.post('/invites/:id/manual-reply', upload.array('files'), h(async (req, res) =>
 }));
 
 // ---------- emails ----------
-r.get('/inbox/count', h(async (req, res) => res.json(await one(`SELECT count(*)::int AS n FROM emails WHERE direction='in' AND invite_id IS NULL AND rfq_id IS NULL AND coalesce(parse_status,'') <> 'ignored'`))));
-r.get('/inbox/unmatched', h(async (req, res) => res.json(await q(`SELECT id,from_addr,subject,at,left(body_text,400) AS preview FROM emails WHERE direction='in' AND invite_id IS NULL AND rfq_id IS NULL AND coalesce(parse_status,'') <> 'ignored' ORDER BY at DESC LIMIT 200`))));
+// mail waiting for someone: not linked to an RFQ, not ignored, not a rate sheet handled under Rate cards
+const UNMATCHED = `direction='in' AND invite_id IS NULL AND rfq_id IS NULL AND coalesce(parse_status,'') NOT IN ('ignored','rate_reading','rates_pending','rates_applied','rates_dismissed')`;
+r.get('/inbox/count', h(async (req, res) => res.json(await one(`SELECT count(*)::int AS n FROM emails WHERE ${UNMATCHED}`))));
+r.get('/inbox/unmatched', h(async (req, res) => res.json(await q(`SELECT id,from_addr,subject,at,parse_status,parse_error,left(body_text,400) AS preview FROM emails WHERE ${UNMATCHED} ORDER BY at DESC LIMIT 200`))));
 r.get('/emails/:id', h(async (req, res) => res.json(await one('SELECT * FROM emails WHERE id=$1', [id(req)]))));
 r.post('/emails/:id/assign', h(async (req, res) => res.json(await assignEmail(id(req), req.body.invite_id))));
 r.post('/emails/:id/parse', h(async (req, res) => res.json(await parseEmail(id(req)))));

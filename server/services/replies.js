@@ -3,6 +3,7 @@ import { q, one, tx } from '../db.js';
 import { TAG_REGEX } from './templates.js';
 import { blocksFor, htmlToText } from './extract.js';
 import { parseAgentReply, classifyEmail } from './ai.js';
+import { readRatesFromEmail } from './rateMail.js';
 import { getSetting, getAiKey } from './settings.js';
 import { createRfqFromEmail } from './intake.js';
 import { rememberQuote } from './rateCards.js';
@@ -107,6 +108,11 @@ export async function ingestInbound(mb, parsed) {
       invite = null;
       kind = 'enquiry';
       status = 'enquiry';
+    } else if (classified?.type === 'rate_sheet' && classified.confidence >= 0.6) {
+      invite = null; // a tariff, not an answer to one RFQ: goes to rate cards
+      rfqId = null;
+      kind = 'rate_sheet';
+      status = 'rate_reading';
     } else if (classified && classified.type !== 'quote_reply' && method === 'sender') {
       invite = null; // not a quote: don't attach it to the agent's open RFQ
     }
@@ -130,6 +136,10 @@ export async function ingestInbound(mb, parsed) {
   });
   if (kind === 'enquiry') {
     await createRfqFromEmail(email.id, { mailboxId: mb.id }).catch((e) => q("UPDATE emails SET parse_status='error', parse_error=$1 WHERE id=$2", [e.message.slice(0, 500), email.id]));
+    return email;
+  }
+  if (kind === 'rate_sheet') {
+    readRatesFromEmail(email.id).catch((e) => console.error('rate sheet read failed', email.id, e.message));
     return email;
   }
   await maybeAutoParse(email);

@@ -195,8 +195,8 @@ const CLASSIFY_TOOL = {
     properties: {
       type: {
         type: 'string',
-        enum: ['quote_reply', 'new_enquiry', 'other'],
-        description: 'quote_reply = the sender is giving us prices/answering our earlier rate request. new_enquiry = the sender is ASKING US for a rate/quotation for a shipment (for themselves or for their own customer). other = anything else (newsletters, invoices, bookings, spam, out-of-office).',
+        enum: ['quote_reply', 'new_enquiry', 'rate_sheet', 'other'],
+        description: 'quote_reply = the sender is giving us prices/answering our earlier rate request for a particular shipment. rate_sheet = the sender is sending their general tariff, rate sheet, monthly/weekly rates, rate revision, surcharge update or validity extension, not tied to one shipment we asked about. new_enquiry = the sender is ASKING US for a rate/quotation for a shipment (for themselves or for their own customer). other = anything else (newsletters, invoices, bookings, spam, out-of-office).',
       },
       confidence: { type: 'number' },
       reason: { type: 'string' },

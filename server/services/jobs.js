@@ -48,7 +48,7 @@ export async function createJobFromQuote(customerQuoteId, option, user) {
       await t.q('INSERT INTO bookings(job_id,invite_id,agent_id,tag,legs,source) VALUES($1,$2,$3,$4,$5,$6)', [j.id, b.invite_id, inv?.agent_id || null, randomTag(), b.legs, inv?.source === 'internal' ? 'own' : 'agent']);
     }
     for (const c of plan.costs) {
-      await t.q("INSERT INTO job_costs(job_id,kind,leg,description,amount,currency,agent_id,source) VALUES($1,$2,$3,$4,$5,$6,$7,'quote')", [j.id, c.kind, c.leg, c.description, c.amount, c.currency, c.kind === 'buy' ? agentOf[c.invite_id] || null : null]);
+      await t.q("INSERT INTO job_costs(job_id,kind,leg,description,amount,currency,agent_id,source,charge_code) VALUES($1,$2,$3,$4,$5,$6,$7,'quote',$8)", [j.id, c.kind, c.leg, c.description, c.amount, c.currency, c.kind === 'buy' ? agentOf[c.invite_id] || null : null, c.charge_code || null]);
     }
     return j;
   });

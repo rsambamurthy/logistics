@@ -23,7 +23,7 @@ export function jobPlanFromOption(option, currency) {
   for (const s of option?.sections || []) {
     for (const l of s.lines || []) {
       costs.push({ kind: 'sell', leg: s.leg, description: l.description, amount: round2(l.sell_amount), currency, invite_id: s.invite_id || null });
-      costs.push({ kind: 'buy', leg: s.leg, description: l.description, amount: round2(l.buy_amount), currency: l.buy_currency, invite_id: s.invite_id || null });
+      costs.push({ kind: 'buy', leg: s.leg, description: l.description, charge_code: l.charge_code || null, amount: round2(l.buy_amount), currency: l.buy_currency, invite_id: s.invite_id || null });
     }
     if (s.invite_id) {
       const b = bookings.get(s.invite_id) || { invite_id: s.invite_id, legs: [] };

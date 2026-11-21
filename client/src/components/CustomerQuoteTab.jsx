@@ -6,6 +6,7 @@ import { useMeta } from './meta.jsx';
 import { useSession, useCan } from './session.js';
 import { Card, Button, Badge, Table, Modal, Field, Input, Textarea, Select, Loading, ErrorBox, useLoad, useAction, money, fmtDate } from './ui.jsx';
 import { EmailPreviewNote } from './rfqBits.jsx';
+import MarginAdvice from './MarginAdvice.jsx';
 
 const letter = (i) => String.fromCharCode(65 + i);
 
@@ -141,6 +142,7 @@ export default function CustomerQuoteTab({ data, selection, reload, goCompare })
               <Field label="PDF language"><Select options={meta.languages.map((l) => ({ value: l.code, label: l.name }))} value={opts.language} onChange={(e) => setOpts({ ...opts, language: e.target.value })} /></Field>
             </div>
             <Field label="Terms"><Textarea rows={3} value={opts.terms} onChange={(e) => setOpts({ ...opts, terms: e.target.value })} /></Field>
+            {can('costs.view') && preview?.options?.[0]?.totals?.buy > 0 && <MarginAdvice rfqId={rfq.id} buy={preview.options[0].totals.buy} current={opts.margin_pct} currency={preview.currency} onUse={(m) => setOpts({ ...opts, margin_pct: m })} />}
             {preview?.error && <ErrorBox error={preview.error} />}
             {preview?.changes?.length > 0 && (
               <div className="alert alert-amber small"><b>Revision of {preview.previous.ref}.</b> Changes:<ul>{preview.changes.map((c, i) => <li key={i}>{c}</li>)}</ul></div>

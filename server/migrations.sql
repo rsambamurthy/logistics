@@ -334,3 +334,21 @@ ALTER TABLE jobs ADD COLUMN IF NOT EXISTS consol_id INT REFERENCES consols(id) O
 ALTER TABLE jobs ADD COLUMN IF NOT EXISTS hawb TEXT;
 ALTER TABLE jobs ADD COLUMN IF NOT EXISTS pieces JSONB;
 CREATE INDEX IF NOT EXISTS jobs_consol_idx ON jobs(consol_id);
+
+-- 21. Agent invoices checked against quoted / booked costs (cost-leakage check)
+ALTER TABLE job_costs ADD COLUMN IF NOT EXISTS charge_code TEXT;
+CREATE TABLE IF NOT EXISTS agent_invoices (
+  id SERIAL PRIMARY KEY,
+  job_id INT NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+  agent_id INT REFERENCES agents(id) ON DELETE SET NULL,
+  file_id INT REFERENCES job_files(id) ON DELETE SET NULL,
+  attachment_id INT REFERENCES attachments(id) ON DELETE SET NULL,
+  email_id INT,
+  invoice_no TEXT, invoice_date DATE, currency TEXT, total NUMERIC, tax NUMERIC, refs TEXT, supplier TEXT,
+  lines JSONB, result JSONB, leakage NUMERIC,
+  status TEXT NOT NULL DEFAULT 'to_check',          -- to_check | ok | disputed | approved
+  note TEXT,
+  created_by INT, created_at TIMESTAMPTZ DEFAULT now(),
+  decided_by INT, decided_at TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS agent_invoices_job_idx ON agent_invoices(job_id);

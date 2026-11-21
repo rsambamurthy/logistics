@@ -17,4 +17,5 @@ Object.assign(recordOf, {
   bl: (id) => one('SELECT j.rfq_id, j.id AS job_id, j.ref FROM bl_drafts b JOIN jobs j ON j.id=b.job_id WHERE b.id=$1', [id]),
   tracking: (id) => one('SELECT j.rfq_id, j.id AS job_id, j.ref FROM tracking t JOIN jobs j ON j.id=t.job_id WHERE t.id=$1', [id]),
   attachment: (id) => one('SELECT e.rfq_id, e.job_id, e.invite_id FROM attachments a JOIN emails e ON e.id=a.email_id WHERE a.id=$1', [id]),
+  agentInvoice: (id) => one('SELECT j.rfq_id, j.id AS job_id, j.ref FROM agent_invoices i JOIN jobs j ON j.id=i.job_id WHERE i.id=$1', [id]),
 });

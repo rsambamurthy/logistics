@@ -507,4 +507,48 @@ export async function reviewConsolPlan(brief) {
   return { consols: Array.isArray(out.consols) ? out.consols : [], summary: out.summary || '' };
 }
 
+const INVOICE_TOOL = {
+  name: 'record_agent_invoice',
+  description: "Record a partner agent's (supplier's) invoice or debit note for a shipment.",
+  input_schema: {
+    type: 'object',
+    properties: {
+      is_invoice: { type: 'boolean', description: 'false if this is not an invoice or debit note' },
+      supplier: { type: 'string', description: 'Company that issued the invoice' },
+      invoice_no: { type: 'string' },
+      invoice_date: { type: 'string', description: 'YYYY-MM-DD' },
+      currency: { type: 'string', enum: CURRENCIES },
+      references: { type: 'string', description: 'Job, booking, BL / AWB, container or shipment references shown' },
+      lines: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            description: { type: 'string', description: 'As written on the invoice' },
+            charge_code: { type: 'string', enum: CHARGE_CODES.map((c) => c.code) },
+            amount: { type: 'number', description: 'Line amount before tax' },
+            currency: { type: 'string', enum: CURRENCIES },
+          },
+          required: ['description', 'charge_code', 'amount'],
+        },
+      },
+      tax: { type: 'number', description: 'Total tax (GST / VAT) on the invoice, 0 if none' },
+      total: { type: 'number', description: 'Invoice grand total' },
+    },
+    required: ['is_invoice', 'lines', 'currency'],
+  },
+};
+
+/** Read an agent's invoice (PDF, image or text) into lines with charge codes. */
+export async function readAgentInvoice({ blocks, hint = '' }) {
+  const system = `You read freight agents' invoices and debit notes for a freight forwarder. Extract every charge line exactly as billed (one line per charge, before tax), map each to the closest charge code from this list:\n${chargeList}\nUse OTHER only when nothing fits. ${hint}`;
+  const out = await callTool({ system, content: blocks, tool: INVOICE_TOOL, maxTokens: 3000 });
+  return {
+    is_invoice: out.is_invoice !== false, supplier: out.supplier || null, invoice_no: out.invoice_no || null,
+    invoice_date: /^\d{4}-\d{2}-\d{2}$/.test(out.invoice_date || '') ? out.invoice_date : null,
+    currency: out.currency || null, references: out.references || null, tax: Number(out.tax || 0), total: out.total ?? null,
+    lines: (out.lines || []).filter((l) => Number.isFinite(Number(l.amount))).map((l) => ({ description: l.description, charge_code: CHARGE_CODES.some((c) => c.code === l.charge_code) ? l.charge_code : normaliseCharge(l.description), amount: Number(l.amount), currency: l.currency || out.currency })),
+  };
+}
+
 export { CURRENCIES };

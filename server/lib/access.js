@@ -61,6 +61,7 @@ export const ROUTES = {
   'GET /rfqs/:id/family': { perm: 'rfqs.view', via: 'rfq' },
   'POST /rfqs/:id/duplicate': { perm: 'rfqs.edit', via: 'rfq' },
   'POST /rfqs/:id/customer-quote/preview': { perm: 'quotes.prepare', via: 'rfq' },
+  'POST /rfqs/:id/margin-advice': { perm: 'quotes.prepare', via: 'rfq', costs: true },
   'POST /rfqs/:id/customer-quotes': { perm: 'quotes.prepare', via: 'rfq' },
 
   'GET /rate-cards': { perm: 'costs.view' },
@@ -111,6 +112,14 @@ export const ROUTES = {
   'GET /jobs/cutoffs': { perm: 'jobs.view' },
   'GET /jobs/:id': { perm: 'jobs.view', via: 'job' },
   'PUT /jobs/:id/pieces': { perm: 'jobs.manage', via: 'job' },
+  // agent invoices are buy-side: costs.view
+  'GET /jobs/:id/invoices': { perm: 'jobs.view', via: 'job', costs: true },
+  'POST /jobs/:id/invoices/read': { perm: 'jobs.manage', via: 'job', costs: true },
+  'POST /jobs/:id/invoices': { perm: 'jobs.manage', via: 'job', costs: true },
+  'PUT /agent-invoices/:id': { perm: 'jobs.manage', via: 'agentInvoice', costs: true },
+  'POST /agent-invoices/:id/decide': { perm: 'jobs.manage', via: 'agentInvoice', costs: true },
+  'DELETE /agent-invoices/:id': { perm: 'jobs.manage', via: 'agentInvoice', costs: true },
+  'GET /agent-invoices': { perm: 'jobs.view', costs: true, all: true },
   // consolidation spans everyone's jobs, so it also needs data.all (all: true)
   'GET /consols': { perm: 'jobs.view', all: true },
   'POST /consols': { perm: 'jobs.manage', all: true },

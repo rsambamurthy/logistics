@@ -15,6 +15,7 @@ export default function Jobs() {
   return (
     <>
       <PageHeader title="Jobs" sub="Accepted quotations: bookings with partner agents, cut-offs, documents and profit" />
+      {can('costs.view') && can('data.all') && <InvoicesToCheck />}
       {cut.data?.length ? <Card title="Cut-offs in the next 3 days"><CutoffList rows={cut.data} /></Card> : null}
       <Card
         title="Jobs"
@@ -44,5 +45,21 @@ export default function Jobs() {
         )}
       </Card>
     </>
+  );
+}
+
+/** Agent invoices the leakage check flagged, across all jobs. */
+function InvoicesToCheck() {
+  const nav = useNavigate();
+  const list = useLoad(() => api.get('/agent-invoices'), [], { refresh: 120000 });
+  if (!list.data?.length) return null;
+  return (
+    <Card title={`Agent invoices to check (${list.data.length})`}>
+      <Table rows={list.data} onRowClick={(i) => nav(`/jobs/${i.job_id}`)} columns={[
+        { label: 'Job', key: 'job_ref' }, { label: 'Agent', render: (i) => i.agent || '—' }, { label: 'Invoice', render: (i) => i.invoice_no || '—' },
+        { label: 'Above quote', render: (i) => (Number(i.leakage) > 0 ? <b className="err">{money(i.leakage, i.currency)}</b> : '—'), align: 'right' },
+        { label: 'Received', render: (i) => fmtDate(i.created_at) },
+      ]} />
+    </Card>
   );
 }

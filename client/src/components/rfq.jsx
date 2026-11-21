@@ -110,16 +110,18 @@ export function AgentPicker({ rfq, invites, onChange, locked = [] }) {
   const [sugg, setSugg] = useState([]);
   const [search, setSearch] = useState('');
   useEffect(() => {
-    const p = new URLSearchParams({ legs: (rfq.legs || []).join(','), pol: rfq.pol || '', pod: rfq.pod || '', pickup: rfq.pickup_place || '', delivery: rfq.delivery_place || '', exclude: rfq.requester_id || '' });
+    const p = new URLSearchParams({ mode: rfq.mode || '', legs: (rfq.legs || []).join(','), pol: rfq.pol || '', pod: rfq.pod || '', pickup: rfq.pickup_place || '', delivery: rfq.delivery_place || '', exclude: rfq.requester_id || '' });
     api.get(`/agents/suggest?${p}`).then(setSugg).catch(() => setSugg([]));
-  }, [rfq.legs, rfq.pol, rfq.pod, rfq.pickup_place, rfq.delivery_place, rfq.requester_id]);
+  }, [rfq.mode, rfq.legs, rfq.pol, rfq.pod, rfq.pickup_place, rfq.delivery_place, rfq.requester_id]);
   const agents = (all.data || []).filter((a) => a.active && a.is_agent && a.id !== rfq.requester_id);
   const chosen = new Map(invites.map((i) => [i.agent_id, i]));
   const add = (a, legs) => onChange([...invites, { agent_id: a.id, legs: legs?.length ? legs.filter((l) => rfq.legs.includes(l)) : rfq.legs }]);
   const remove = (aid) => onChange(invites.filter((i) => i.agent_id !== aid));
   const toggleLeg = (aid, leg) => onChange(invites.map((i) => (i.agent_id === aid ? { ...i, legs: i.legs.includes(leg) ? i.legs.filter((l) => l !== leg) : [...i.legs, leg] } : i)));
   const filtered = agents.filter((a) => !chosen.has(a.id) && (!search || `${a.company} ${a.ports} ${a.country} ${a.city}`.toLowerCase().includes(search.toLowerCase())));
-  const suggested = sugg.filter((s) => !chosen.has(s.id)).slice(0, 6);
+  const suggested = sugg.filter((s) => !chosen.has(s.id)).slice(0, 8);
+  const picks = suggested.filter((s) => s.recommended);
+  const addAll = () => onChange([...invites, ...picks.map((s) => ({ agent_id: s.id, legs: s.suggested_legs?.length ? s.suggested_legs.filter((l) => rfq.legs.includes(l)) : rfq.legs }))]);
   return (
     <div className="stack">
       {invites.length > 0 && (
@@ -135,15 +137,20 @@ export function AgentPicker({ rfq, invites, onChange, locked = [] }) {
       )}
       {suggested.length > 0 && (
         <div>
-          <div className="field-l">Suggested for this route</div>
+          <div className="row gap-sm wrap">
+            <div className="field-l">Agent's picks for this route</div>
+            <span className="spacer" />
+            {picks.length > 1 && <Button small variant="ghost" onClick={addAll}>Add the {picks.length} recommended</Button>}
+          </div>
           <div className="sugg">
             {suggested.map((s) => (
-              <button type="button" key={s.id} className="sugg-item" onClick={() => add(s, s.suggested_legs)}>
-                <b>+ {s.company}</b>
-                <span className="muted small">{[s.city, s.country].filter(Boolean).join(', ')}{s.response_rate !== null ? ` · replies ${s.response_rate}%` : ''}{s.won ? ` · won ${s.won}` : ''}</span>
+              <button type="button" key={s.id} className={`sugg-item${s.recommended ? ' rec' : ''}`} onClick={() => add(s, s.suggested_legs)} title={s.parts ? `Replies ${s.parts.reply} · speed ${s.parts.speed} · price ${s.parts.price} · wins ${s.parts.win} · bookings ${s.parts.reliability}` : ''}>
+                <b>+ {s.company} <span className="score">{s.score}</span>{s.explore && <Badge color="amber">try new</Badge>}{s.recommended && !s.explore && <Badge color="green">recommended</Badge>}</b>
+                <span className="muted small">{(s.reasons || []).join(' · ') || [s.city, s.country].filter(Boolean).join(', ')}</span>
               </button>
             ))}
           </div>
+          <p className="small muted">Ranked on replies, reply speed, price, jobs won and bookings that went through, on this lane where there is history. One slot goes to an agent with little history so new agents get a chance.</p>
         </div>
       )}
       <div className="row gap">

@@ -4,6 +4,7 @@ import { TAG_REGEX } from './templates.js';
 import { blocksFor, htmlToText } from './extract.js';
 import { parseAgentReply, classifyEmail } from './ai.js';
 import { readRatesFromEmail } from './rateMail.js';
+import { maybeReadInvoiceEmail } from './agentInvoices.js';
 import { getSetting, getAiKey } from './settings.js';
 import { createRfqFromEmail } from './intake.js';
 import { rememberQuote } from './rateCards.js';
@@ -81,6 +82,8 @@ export async function ingestInbound(mb, parsed) {
       subject: parsed.subject || '', text, html: typeof parsed.html === 'string' ? parsed.html : null, attachments: mailAttachments, at: parsed.date,
     });
     onBookingReply(email).catch((e) => console.error('booking reply', e.message));
+    // an agent's invoice for the job: read it and check it against the quoted costs
+    q('SELECT id, filename, content_type FROM attachments WHERE email_id=$1', [email.id]).then((atts) => maybeReadInvoiceEmail(email, atts)).catch((e) => console.error('invoice check', e.message));
     return email;
   }
   // the customer writing about a job (documents, draft approval)

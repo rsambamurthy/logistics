@@ -10,6 +10,7 @@ import JobDocuments from '../components/JobDocuments.jsx';
 import JobTracking from '../components/JobTracking.jsx';
 import OwnerPicker from '../components/OwnerPicker.jsx';
 import { PiecesEditor } from '../components/consol.jsx';
+import AgentInvoices from '../components/AgentInvoices.jsx';
 import { useCan } from '../components/session.js';
 
 
@@ -266,7 +267,7 @@ export default function JobDetail() {
         tabs={[
           { key: 'overview', label: 'Overview' },
           { key: 'bookings', label: 'Bookings', count: toCheck || null },
-          ...(can('costs.view') ? [{ key: 'costs', label: 'Costs & profit' }] : []),
+          ...(can('costs.view') ? [{ key: 'costs', label: 'Costs, invoices & profit' }] : []),
           { key: 'docs', label: 'Documents', count: d.data.docs.checklist.filter((r) => r.status === 'missing').length + d.data.docs.bls.filter((b) => ['received', 'customer_corrections', 'customer_approved'].includes(b.status)).length || null },
           { key: 'emails', label: 'Emails', count: d.data.emails.length || null },
           { key: 'history', label: 'History' },
@@ -275,7 +276,7 @@ export default function JobDetail() {
       <ReadOnly when={!can('jobs.manage')}>
       {tab === 'overview' && <Overview d={d.data} set={set} />}
       {tab === 'bookings' && <Bookings d={d.data} set={set} />}
-      {tab === 'costs' && can('costs.view') && <Costs d={d.data} set={set} />}
+      {tab === 'costs' && can('costs.view') && <div className="stack"><AgentInvoices d={d.data} /><Costs d={d.data} set={set} /></div>}
       {tab === 'docs' && <JobDocuments d={d.data} set={set} />}
       {tab === 'emails' && <Emails d={d.data} set={set} />}
       </ReadOnly>

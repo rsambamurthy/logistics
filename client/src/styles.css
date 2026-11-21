@@ -281,3 +281,6 @@ fieldset.readonly .btn { opacity: .5; cursor: not-allowed; }
 .spacer { flex: 1; }
 ul.reasons { margin: 8px 0; padding-left: 18px; }
 ul.reasons li { margin: 2px 0; }
+
+.sugg-item.rec { border-color: #93c5fd; background: #f5f9ff; }
+.sugg-item .score { display: inline-block; margin-left: 6px; font-size: 11px; font-weight: 700; color: #fff; background: var(--blue); border-radius: 99px; padding: 0 7px; }

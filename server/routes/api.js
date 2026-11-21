@@ -14,6 +14,9 @@ import { attachmentBlocks } from '../services/extract.js';
 import { parseEnquiry, readRateSheet } from '../services/ai.js';
 import { previewCustomerQuote, saveCustomerQuote, renderPdf, emailCustomerQuote, followUpQuote, markLost, LOST_REASONS, decideApproval, acceptQuote, rfqFamily, approvalFor, withApprovalRights, approvableRoles } from '../services/customerQuote.js';
 import { roleExists } from '../services/roles.js';
+import { suggestAgents } from '../services/agentRank.js';
+import { readInvoice, listInvoices, createInvoice, updateInvoice, decideInvoice, deleteInvoice, invoicesToCheck } from '../services/agentInvoices.js';
+import { marginAdvice } from '../services/winModel.js';
 import { agentPlan, agentReview, acceptPlan, listConsols, createConsol, loadConsol, updateConsol, deleteConsol, addHouses, updateHouse, removeHouse, setConsolStatus, applyCosts, manifestPdf, setPieces } from '../services/consol.js';
 import { readRatesFromEmail, pendingRateMail, rateProposal, applyRateProposal, dismissRateProposal } from '../services/rateMail.js';
 import { LANGUAGES } from '../services/i18n.js';
@@ -226,18 +229,10 @@ r.get('/agents-stats', h(async (req, res) => {
 
 r.get('/agents/suggest', h(async (req, res) => {
   const legs = String(req.query.legs || '').split(',').filter(Boolean);
-  const places = [req.query.pol, req.query.pod, req.query.pickup, req.query.delivery].filter(Boolean).map((s) => String(s).toLowerCase());
-  const agents = await q(`SELECT a.*, count(i.id)::int AS invited, count(i.replied_at)::int AS replied, count(*) FILTER (WHERE i.awarded)::int AS won
-    FROM agents a LEFT JOIN rfq_invites i ON i.agent_id=a.id WHERE a.active AND a.is_agent AND a.id <> $1 GROUP BY a.id`, [Number(req.query.exclude) || 0]);
-  const scored = agents.map((a) => {
-    const legHits = legs.filter((l) => (a.services || []).includes(l));
-    const text = `${a.ports || ''} ${a.city || ''} ${a.country || ''}`.toLowerCase();
-    const placeHits = places.filter((p) => p.split(/[\s,()]+/).some((w) => w.length > 2 && text.includes(w))).length;
-    const responseRate = a.invited ? a.replied / a.invited : 0.5;
-    const score = legHits.length * 3 + placeHits * 2 + responseRate * 2 + Math.min(a.won, 5) * 0.3;
-    return { ...a, suggested_legs: legHits.length ? legHits : legs.filter((l) => !(a.services || []).length), score: Math.round(score * 10) / 10, response_rate: a.invited ? Math.round(responseRate * 100) : null };
-  }).filter((a) => a.score > 0).sort((x, y) => y.score - x.score);
-  res.json(scored);
+  const places = [req.query.pol, req.query.pod, req.query.pickup, req.query.delivery].filter(Boolean);
+  const list = await suggestAgents({ mode: req.query.mode, pol: req.query.pol, pod: req.query.pod, legs, places, exclude: req.query.exclude, pick: req.query.pick });
+  // price standing is buy-side information
+  res.json(req.user.perms.includes('costs.view') ? list : list.map((a) => ({ ...a, parts: { ...a.parts, price: null }, reasons: a.reasons.filter((x) => !/cheap|dear|priced/.test(x)) })));
 }));
 
 // ---------- RFQs ----------
@@ -392,6 +387,7 @@ r.put('/agent-quotes/:id', h(async (req, res) => {
 }));
 
 // ---------- customer quotes ----------
+r.post('/rfqs/:id/margin-advice', h(async (req, res) => res.json(await marginAdvice(id(req), req.body))));
 r.post('/rfqs/:id/customer-quote/preview', h(async (req, res) => {
   const snap = await previewCustomerQuote(id(req), req.body);
   res.json({ ...snap, approval: await approvalFor(snap, req.user) });
@@ -442,6 +438,17 @@ r.post('/customer-quotes/:id/job', h(async (req, res) => res.json({ job: await c
 r.get('/jobs', h(async (req, res) => res.json(await listJobs(req.query))));
 r.get('/jobs/cutoffs', h(async (req, res) => res.json(await upcomingCutoffs(Number(req.query.hours) || 72))));
 r.get('/jobs/:id', h(async (req, res) => res.json(await loadJob(id(req)))));
+r.get('/jobs/:id/invoices', h(async (req, res) => res.json(await listInvoices(id(req)))));
+r.post('/jobs/:id/invoices/read', upload.single('file'), h(async (req, res) => {
+  let fileId = req.body.file_id ? Number(req.body.file_id) : null;
+  if (req.file) fileId = (await one("INSERT INTO job_files(job_id,kind,filename,content_type,size,data,uploaded_by) VALUES($1,'agent_invoice',$2,$3,$4,$5,$6) RETURNING id", [id(req), req.file.originalname, req.file.mimetype, req.file.size, req.file.buffer, req.user.id])).id;
+  res.json(await readInvoice(id(req), { file_id: fileId, attachment_id: req.body.attachment_id ? Number(req.body.attachment_id) : null, agent_id: req.body.agent_id || null }, req.user));
+}));
+r.post('/jobs/:id/invoices', h(async (req, res) => res.json(await createInvoice(id(req), req.body, req.user))));
+r.put('/agent-invoices/:id', h(async (req, res) => res.json(await updateInvoice(id(req), req.body, req.user))));
+r.post('/agent-invoices/:id/decide', h(async (req, res) => res.json(await decideInvoice(id(req), req.body, req.user))));
+r.delete('/agent-invoices/:id', h(async (req, res) => res.json(await deleteInvoice(id(req), req.user))));
+r.get('/agent-invoices', h(async (req, res) => res.json(await invoicesToCheck())));
 r.put('/jobs/:id/pieces', h(async (req, res) => { await setPieces(id(req), req.body.pieces); res.json(await loadJob(id(req))); }));
 
 // ---------------- consolidation ----------------

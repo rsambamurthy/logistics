@@ -11,6 +11,7 @@ import JobTracking from '../components/JobTracking.jsx';
 import OwnerPicker from '../components/OwnerPicker.jsx';
 import { PiecesEditor } from '../components/consol.jsx';
 import AgentInvoices from '../components/AgentInvoices.jsx';
+import DelayRisk from '../components/DelayRisk.jsx';
 import { useCan } from '../components/session.js';
 
 
@@ -24,6 +25,7 @@ function Overview({ d, set, reload }) {
   const field = (k) => ({ value: form[k] ?? '', onChange: (e) => setForm({ ...form, [k]: e.target.value }) });
   const confirmed = d.bookings.filter((b) => b.status === 'confirmed').length;
   const milestones = { open: [], booking_requested: [], booked: ['departed'], departed: ['arrived'], arrived: ['completed'] }[job.status] || [];
+  const can = useCan();
   return (
     <div className="stack">
       <Card title="Progress" actions={
@@ -44,6 +46,7 @@ function Overview({ d, set, reload }) {
         </dl>
       </Card>
       {d.consol && <div className="alert alert-blue small">Travels in consolidation <Link to={`/consols/${d.consol.id}`}><b>{d.consol.ref}</b></Link>{job.hawb ? ` as house ${job.hawb}` : ''}{d.consol.mawb ? `, master ${d.consol.mawb}` : ''}. Departure, arrival and tracking come from the consol.</div>}
+      <DelayRisk job={job} canManage={can('jobs.manage')} onChanged={async () => set(await api.get(`/jobs/${job.id}`))} />
       <JobTracking d={d} set={set} />
       <Card title="Shipment" actions={<Link to={`/rfqs/${rfq?.id}`}>Open {job.rfq_ref}</Link>}>
         <dl className="kv">

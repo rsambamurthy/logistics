@@ -125,6 +125,8 @@ export async function applyTracking(jobId) {
   }
   // ETA moved by more than the threshold since we last told the customer
   const eta = snaps.map(bestEta).filter(Boolean).sort().pop();
+  if (eta) await q('UPDATE jobs SET first_eta=coalesce(first_eta,$1) WHERE id=$2', [eta, jobId]); // to learn lane punctuality
+  import('./delay.js').then((m) => m.assessJob(jobId)).catch((e) => console.error('delay assess', e.message));
   const last = job.last_notified?.eta_value;
   if (eta && last && Math.abs(hoursBetween(last, eta)) >= Number(cfg.eta_change_hours || 24) && !['arrived', 'completed', 'cancelled'].includes((await one('SELECT status FROM jobs WHERE id=$1', [jobId])).status)) {
     await notifyMilestone(jobId, 'eta', { previous_eta: last }).catch((e) => console.error('eta mail', e.message));
@@ -198,7 +200,7 @@ export async function notifyMilestone(jobId, kind, extra = {}) {
   const cfg = await getTrackingConfig();
   const job = await one('SELECT * FROM jobs WHERE id=$1', [jobId]);
   if (!cfg.email_milestones || !job.rfq_id) return false;
-  if (kind !== 'eta' && job.last_notified?.[kind]) return false;
+  if (!['eta', 'delay'].includes(kind) && job.last_notified?.[kind]) return false;
   const rfq = await one('SELECT * FROM rfqs WHERE id=$1', [job.rfq_id]);
   const info = { ...(await milestoneInfo(job, rfq)), ...extra };
   const trackUrl = job.track_enabled ? await trackUrlFor(jobId) : null;

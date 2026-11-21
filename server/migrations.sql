@@ -352,3 +352,7 @@ CREATE TABLE IF NOT EXISTS agent_invoices (
   decided_by INT, decided_at TIMESTAMPTZ
 );
 CREATE INDEX IF NOT EXISTS agent_invoices_job_idx ON agent_invoices(job_id);
+
+-- 22. Delay prediction: first ETA seen (to learn punctuality) and the latest assessment
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS first_eta TEXT;
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS delay_risk JSONB;

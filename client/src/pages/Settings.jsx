@@ -208,7 +208,7 @@ function AiSettings({ data, onSaved }) {
 function TrackingSettings({ data, onSaved }) {
   const t = data.tracking;
   const providers = useLoad(() => api.get('/tracking/providers'));
-  const [f, setF] = useState({ provider: t.provider, enabled: t.enabled, poll_hours: t.poll_hours, auto_milestones: t.auto_milestones, email_milestones: t.email_milestones, eta_change_hours: t.eta_change_hours, notify_agents_default: t.notify_agents_default, api_key: '' });
+  const [f, setF] = useState({ provider: t.provider, enabled: t.enabled, poll_hours: t.poll_hours, auto_milestones: t.auto_milestones, email_milestones: t.email_milestones, eta_change_hours: t.eta_change_hours, notify_agents_default: t.notify_agents_default, auto_delay_email: !!t.auto_delay_email, api_key: '' });
   const [busy, run] = useAction();
   const prov = (providers.data || []).find((p) => p.code === f.provider);
   return (
@@ -225,6 +225,7 @@ function TrackingSettings({ data, onSaved }) {
         <Check label="Move jobs to departed / arrived automatically from tracking" checked={f.auto_milestones} onChange={(v) => setF({ ...f, auto_milestones: v })} />
         <Check label="Email milestone and ETA updates to the customer" checked={f.email_milestones} onChange={(v) => setF({ ...f, email_milestones: v })} />
         <Check label="For new jobs, also email updates to the partner agents" checked={f.notify_agents_default} onChange={(v) => setF({ ...f, notify_agents_default: v })} />
+        <Check label="Email the customer as soon as a delay is predicted (otherwise the desk decides with “Warn the customer”)" checked={f.auto_delay_email} onChange={(v) => setF({ ...f, auto_delay_email: v })} />
       </div>
     </Card>
   );

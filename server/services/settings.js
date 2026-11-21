@@ -40,6 +40,7 @@ export const DEFAULTS = {
     auto_milestones: true,
     email_milestones: true,
     eta_change_hours: 24,
+    auto_delay_email: false, // email the customer as soon as a delay is predicted
     notify_agents_default: false,
   },
   ai: {

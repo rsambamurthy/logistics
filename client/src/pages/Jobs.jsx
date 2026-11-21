@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { api } from '../api.js';
 import { PageHeader, Card, Table, Input, Select, Loading, ErrorBox, useLoad, money, fmtDate } from '../components/ui.jsx';
 import { useCan } from '../components/session.js';
+import { RiskBadge } from '../components/DelayRisk.jsx';
 import { StatusBadge, JOB_STATUS, CutoffList, fmtLocal } from '../components/jobs.jsx';
 
 export default function Jobs() {
@@ -15,6 +16,7 @@ export default function Jobs() {
   return (
     <>
       <PageHeader title="Jobs" sub="Accepted quotations: bookings with partner agents, cut-offs, documents and profit" />
+      {can('data.all') && <AtRisk />}
       {can('costs.view') && can('data.all') && <InvoicesToCheck />}
       {cut.data?.length ? <Card title="Cut-offs in the next 3 days"><CutoffList rows={cut.data} /></Card> : null}
       <Card
@@ -38,7 +40,7 @@ export default function Jobs() {
               { label: 'Bookings', render: (r) => `${r.confirmed}/${r.bookings} confirmed`, align: 'center' },
               { label: 'ETD', render: (r) => (r.etd ? fmtLocal(r.etd) : '—') },
               ...(can('costs.view') ? [{ label: 'Profit', render: (r) => <span className={r.profit?.profit < 0 ? 'err' : ''}>{money(r.profit?.profit, r.profit?.currency)}</span>, align: 'right' }] : []),
-              { label: 'Status', render: (r) => <StatusBadge status={r.status} /> },
+              { label: 'Status', render: (r) => <><StatusBadge status={r.status} /> {['at_risk', 'late'].includes(r.delay_risk?.risk) && <RiskBadge r={r.delay_risk} />}</> },
               { label: 'Opened', render: (r) => fmtDate(r.created_at) },
             ]}
           />
@@ -59,6 +61,25 @@ function InvoicesToCheck() {
         { label: 'Job', key: 'job_ref' }, { label: 'Agent', render: (i) => i.agent || '—' }, { label: 'Invoice', render: (i) => i.invoice_no || '—' },
         { label: 'Above quote', render: (i) => (Number(i.leakage) > 0 ? <b className="err">{money(i.leakage, i.currency)}</b> : '—'), align: 'right' },
         { label: 'Received', render: (i) => fmtDate(i.created_at) },
+      ]} />
+    </Card>
+  );
+}
+
+/** Open jobs the delay prediction flags. */
+function AtRisk() {
+  const nav = useNavigate();
+  const list = useLoad(() => api.get('/delays'), [], { refresh: 300000 });
+  if (!list.data?.length) return null;
+  return (
+    <Card title={`Shipments at risk of delay (${list.data.length})`}>
+      <Table rows={list.data} onRowClick={(j) => nav(`/jobs/${j.id}`)} columns={[
+        { label: 'Job', key: 'ref' }, { label: 'Customer', render: (j) => j.customer || '—' },
+        { label: 'Route', render: (j) => `${j.mode} ${[j.pol, j.pod].filter(Boolean).join(' → ')}` },
+        { label: 'Risk', render: (j) => <RiskBadge r={j.delay_risk} /> },
+        { label: 'Expected', render: (j) => j.delay_risk.expected_eta || '—' },
+        { label: 'Why', render: (j) => <span className="small">{j.delay_risk.signals?.[0]?.text}</span> },
+        { label: 'Customer told', render: (j) => (j.delay_risk.warned_eta === j.delay_risk.expected_eta ? 'yes' : '—') },
       ]} />
     </Card>
   );

@@ -15,6 +15,7 @@ import { parseEnquiry, readRateSheet } from '../services/ai.js';
 import { previewCustomerQuote, saveCustomerQuote, renderPdf, emailCustomerQuote, followUpQuote, markLost, LOST_REASONS, decideApproval, acceptQuote, rfqFamily, approvalFor, withApprovalRights, approvableRoles } from '../services/customerQuote.js';
 import { roleExists } from '../services/roles.js';
 import { suggestAgents } from '../services/agentRank.js';
+import { assessJob, warnCustomer, jobsAtRisk } from '../services/delay.js';
 import { readInvoice, listInvoices, createInvoice, updateInvoice, decideInvoice, deleteInvoice, invoicesToCheck } from '../services/agentInvoices.js';
 import { marginAdvice } from '../services/winModel.js';
 import { agentPlan, agentReview, acceptPlan, listConsols, createConsol, loadConsol, updateConsol, deleteConsol, addHouses, updateHouse, removeHouse, setConsolStatus, applyCosts, manifestPdf, setPieces } from '../services/consol.js';
@@ -449,6 +450,9 @@ r.put('/agent-invoices/:id', h(async (req, res) => res.json(await updateInvoice(
 r.post('/agent-invoices/:id/decide', h(async (req, res) => res.json(await decideInvoice(id(req), req.body, req.user))));
 r.delete('/agent-invoices/:id', h(async (req, res) => res.json(await deleteInvoice(id(req), req.user))));
 r.get('/agent-invoices', h(async (req, res) => res.json(await invoicesToCheck())));
+r.post('/jobs/:id/delay', h(async (req, res) => res.json(await assessJob(id(req)))));
+r.post('/jobs/:id/delay/warn', h(async (req, res) => res.json(await warnCustomer(id(req), req.user))));
+r.get('/delays', h(async (req, res) => res.json(await jobsAtRisk())));
 r.put('/jobs/:id/pieces', h(async (req, res) => { await setPieces(id(req), req.body.pieces); res.json(await loadJob(id(req))); }));
 
 // ---------------- consolidation ----------------

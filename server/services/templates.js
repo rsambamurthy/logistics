@@ -287,8 +287,9 @@ const MILESTONE_TEXT = {
   arrived: (r) => `Your shipment has arrived${r.pod ? ` at ${r.pod}` : ''}.`,
   completed: () => 'Your shipment is completed. Thank you for shipping with us.',
   eta: () => 'The expected arrival date of your shipment has changed.',
+  delay: (r) => `We expect your shipment to arrive later than planned${r.eta ? `, now around ${fmtDT(r.eta)}` : ''}. We are following it closely and will update you.${r.reason ? `\n\nReason: ${r.reason}` : ''}`,
 };
-const MILESTONE_SUBJECT = { departed: 'Departed', arrived: 'Arrived', completed: 'Completed', eta: 'ETA update' };
+const MILESTONE_SUBJECT = { departed: 'Departed', arrived: 'Arrived', completed: 'Completed', eta: 'ETA update', delay: 'Possible delay' };
 
 /** Milestone update for the customer (or a partner agent), with the tracking link. */
 export function milestoneEmail({ job, rfq, customer, mb, kind, info, trackUrl, toAgent }) {
@@ -299,7 +300,7 @@ export function milestoneEmail({ job, rfq, customer, mb, kind, info, trackUrl, t
     [rfq.mode === 'AIR' ? 'AWB' : 'BL', job.bl_no || info.bl || null],
     ['Departed', info.atd ? fmtDT(info.atd) : null],
     [info.arrived ? 'Arrived' : 'Expected arrival', info.eta ? fmtDT(info.eta) : null],
-    ['Previous estimate', kind === 'eta' && info.previous_eta ? fmtDT(info.previous_eta) : null],
+    ['Previous estimate', ['eta', 'delay'].includes(kind) && info.previous_eta ? fmtDT(info.previous_eta) : null],
   ].filter(([, v]) => v);
   return {
     subject: `${MILESTONE_SUBJECT[kind]}: ${job.ref} — ${routeText(rfq)}`,

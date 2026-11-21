@@ -112,6 +112,9 @@ export const ROUTES = {
   'GET /jobs/cutoffs': { perm: 'jobs.view' },
   'GET /jobs/:id': { perm: 'jobs.view', via: 'job' },
   'PUT /jobs/:id/pieces': { perm: 'jobs.manage', via: 'job' },
+  'POST /jobs/:id/delay': { perm: 'jobs.view', via: 'job' },
+  'POST /jobs/:id/delay/warn': { perm: 'jobs.manage', via: 'job' },
+  'GET /delays': { perm: 'jobs.view', all: true },
   // agent invoices are buy-side: costs.view
   'GET /jobs/:id/invoices': { perm: 'jobs.view', via: 'job', costs: true },
   'POST /jobs/:id/invoices/read': { perm: 'jobs.manage', via: 'job', costs: true },

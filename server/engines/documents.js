@@ -61,12 +61,12 @@ export function checklist({ rfq, country, files = [], waived = [], extra = [], s
 export const missingFromCustomer = (rows) => rows.filter((r) => r.status === 'missing' && r.from === 'customer').map((r) => r.code);
 
 // ---- BL / AWB vs SI ----
-const norm = (v) => String(v ?? '').toUpperCase().replace(/[^A-Z0-9]+/g, ' ').trim();
-const num = (v) => {
+export const norm = (v) => String(v ?? '').toUpperCase().replace(/[^A-Z0-9]+/g, ' ').trim();
+export const num = (v) => {
   const n = Number(String(v ?? '').replace(/[^0-9.]/g, ''));
   return Number.isFinite(n) && String(v ?? '').trim() !== '' ? n : null;
 };
-const partyText = (p) => (p && typeof p === 'object' ? [p.name, p.address].filter(Boolean).join(' ') : p);
+export const partyText = (p) => (p && typeof p === 'object' ? [p.name, p.address].filter(Boolean).join(' ') : p);
 
 // ports: ignore UN/LOCODEs and bracketed codes ("Hong Kong (HKHKG)" = "HONG KONG")
 const place = (v) => (v ? String(v).replace(/\([^)]*\)/g, ' ').replace(/\b[A-Z]{2}[A-Z0-9]{3}\b/g, ' ') : v);
@@ -92,7 +92,7 @@ const NUM_FIELDS = [
 ];
 
 /** True when b contains all words of a (BLs often wrap or abbreviate addresses, so containment is enough). */
-function sameText(a, b) {
+export function sameText(a, b) {
   const x = norm(a);
   const y = norm(b);
   if (x === y) return true;

@@ -14,7 +14,7 @@ import { getFx, getSetting, getAiKey } from './settings.js';
 import { audit } from './audit.js';
 
 const err = (msg, status = 400) => Object.assign(new Error(msg), { status });
-const JOB_FIELDS = ['shipper', 'consignee', 'notify_party', 'cargo_ready_date', 'customer_ref', 'notes', 'atd', 'ata'];
+const JOB_FIELDS = ['shipper', 'consignee', 'notify_party', 'cargo_ready_date', 'customer_ref', 'notes', 'atd', 'ata', 'invoice_no', 'invoice_date', 'invoice_amount', 'invoice_currency', 'due_date', 'paid_at'];
 const BOOKING_FIELDS = ['carrier', 'booking_no', 'vessel', 'voyage', 'flight_no', 'mbl_awb', 'pol', 'pod', 'etd', 'eta', 'cutoffs', 'empty_pickup', 'container_nos', 'remarks'];
 const blank = (v) => (v === '' || v === undefined ? null : v);
 

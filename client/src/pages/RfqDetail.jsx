@@ -4,6 +4,7 @@ import { useCan } from '../components/session.js';
 import OwnerPicker from '../components/OwnerPicker.jsx';
 import { api } from '../api.js';
 import { useMeta } from '../components/meta.jsx';
+import { ReplyForecast, ReadyBanner, SmartCombo, RfqPlanning } from '../components/planning.jsx';
 import { ReadOnly, PageHeader, Card, Button, Badge, Table, Tabs, Modal, Field, Input, Textarea, Select, Check, Loading, ErrorBox, useLoad, useAction, money, fmtDate, fmtDateTime } from '../components/ui.jsx';
 import { ShipmentForm, AgentPicker, QuoteEditor, routeOf, cargoOf } from '../components/rfq.jsx';
 import CustomerQuoteTab from '../components/CustomerQuoteTab.jsx';
@@ -66,7 +67,8 @@ export default function RfqDetail() {
           { key: 'history', label: 'History' },
         ]}
       />
-      {tab === 'agents' && <ReadOnly when={!edit}><AgentsTab data={d.data} reload={d.reload} /></ReadOnly>}
+      {tab === 'agents' && costs && <RfqPlanning rfq={rfq} />}
+      {tab === 'agents' && <ReadOnly when={!edit}><AgentsTab data={d.data} reload={d.reload} goCompare={costs ? () => setTab('compare') : null} /></ReadOnly>}
       {tab === 'review' && costs && <ReviewTab data={d.data} reload={d.reload} />}
       {tab === 'compare' && costs && <CompareTab rfq={rfq} selection={selection} setSelection={setSelection} goQuote={() => setTab('customer')} />}
       {tab === 'customer' && <CustomerQuoteTab key={rfq.id} data={d.data} selection={selection} reload={d.reload} goCompare={() => setTab('compare')} />}
@@ -77,7 +79,7 @@ export default function RfqDetail() {
 }
 
 // ---------------- Agents & emails ----------------
-function AgentsTab({ data, reload }) {
+function AgentsTab({ data, reload, goCompare }) {
   const meta = useMeta();
   const { rfq, invites, emails } = data;
   const [busy, run] = useAction();
@@ -88,8 +90,11 @@ function AgentsTab({ data, reload }) {
   const act = (key, fn, msg) => run(key, async () => { await fn(); await reload(); }, msg);
   const pending = invites.filter((i) => ['pending', 'failed'].includes(i.status)).length;
   const requesterMails = emails.filter((e) => !e.invite_id && (e.kind === 'enquiry' || e.kind === 'requester_reply' || e.kind === 'customer_quote'));
+  const fc = useLoad(() => api.get(`/rfqs/${rfq.id}/replies`), [rfq.id, invites.map((i) => i.status + i.reminder_count).join()], { refresh: 120 });
+  const forecast = fc.data?.invites || {};
   return (
     <>
+      {invites.some((i) => ['sent', 'reminded', 'replied'].includes(i.status)) && <ReadyBanner ready={fc.data?.ready} onCompare={goCompare} />}
       {rfq.status === 'new' && <div className="alert alert-blue">New enquiry received by email. Check the shipment details, add partner agents to ask for rates, then email them. Or quote directly if you have your own rates.</div>}
       {requesterMails.length > 0 && (
         <Card title={`Correspondence with ${rfq.requester_name || 'requester'}`}>
@@ -113,6 +118,7 @@ function AgentsTab({ data, reload }) {
             { label: 'Sent', render: (i) => fmtDateTime(i.sent_at) },
             { label: 'Replied', render: (i) => fmtDateTime(i.replied_at) },
             { label: 'Reminders', render: (i) => i.reminder_count || '', align: 'center' },
+            { label: 'Reply forecast', render: (i) => <ReplyForecast f={forecast[i.id]} /> },
             {
               label: '', render: (i) => (
                 i.source !== 'email' || !i.agent_email ? <span className="muted small">{i.source === 'ratecard' ? 'priced from rate card' : 'your own rates'}</span> :
@@ -190,7 +196,7 @@ function CounterModal({ invite, onClose, onDone }) {
   const [msg, setMsg] = useState('Your rates are higher than other offers we have received. Could you please revise and share your best rate?');
   const [busy, run] = useAction();
   return (
-    <Modal title={`Counter-offer to ${invite.agent_company}`} onClose={onClose} footer={<Button busy={busy} onClick={() => run('x', async () => { await api.post(`/invites/${invite.id}/counter`, { message: col.ask_message }); onDone(); }, 'Counter-offer sent')}>Send email</Button>}>
+    <Modal title={`Counter-offer to ${invite.agent_company}`} onClose={onClose} footer={<Button busy={busy} onClick={() => run('x', async () => { await api.post(`/invites/${invite.id}/counter`, { message: msg }); onDone(); }, 'Counter-offer sent')}>Send email</Button>}>
       <Field label="Message (sent in the same email thread)"><Textarea rows={6} value={msg} onChange={(e) => setMsg(e.target.value)} /></Field>
     </Modal>
   );
@@ -348,6 +354,7 @@ function CompareTab({ rfq, selection, setSelection, goQuote }) {
         <Button small variant="ghost" onClick={useSingle} disabled={!cmp.bestSingle}>Best single agent</Button>
       </>}
     >
+      <SmartCombo smart={cmp.smart} currency={cmp.currency} onUse={setSelection} />
       <div className="table-wrap">
         <table className="table cmp">
           <thead>
@@ -406,7 +413,7 @@ function ShipmentTab({ data, reload }) {
   const parties = useLoad(() => api.get('/agents'));
   const mailboxes = useLoad(() => api.get('/mailboxes'));
   const toLocal = (d) => (d ? new Date(d).toISOString().slice(0, 16) : '');
-  const [f, setF] = useState({ ...data.rfq, ready_date: data.rfq.ready_date?.slice?.(0, 10) || '', deadline: toLocal(data.rfq.deadline) });
+  const [f, setF] = useState({ ...data.rfq, ready_date: data.rfq.ready_date?.slice?.(0, 10) || '', deliver_by: data.rfq.deliver_by?.slice?.(0, 10) || '', deadline: toLocal(data.rfq.deadline) });
   const [busy, run] = useAction();
   const save = () => run('x', async () => { await api.put(`/rfqs/${data.rfq.id}`, { ...f, deadline: f.deadline ? new Date(f.deadline).toISOString() : null }); await reload(); }, 'Saved');
   return (
@@ -425,5 +432,5 @@ function AskAgent({ col }) {
   const [busy, run] = useAction();
   const [sent, setSent] = useState(false);
   if (sent) return <div className="ok">Asked</div>;
-  return <button type="button" className="link" disabled={busy === 'ask'} onClick={() => run('ask', async () => { await api.post(`/invites/${col.invite.id}/counter`, { message: msg }); setSent(true); }, 'Question sent to the agent')}>Ask the agent</button>;
+  return <button type="button" className="link" disabled={busy === 'ask'} onClick={() => run('ask', async () => { await api.post(`/invites/${col.invite.id}/counter`, { message: col.ask_message }); setSent(true); }, 'Question sent to the agent')}>Ask the agent</button>;
 }

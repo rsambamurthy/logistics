@@ -284,3 +284,8 @@ ul.reasons li { margin: 2px 0; }
 
 .sugg-item.rec { border-color: #93c5fd; background: #f5f9ff; }
 .sugg-item .score { display: inline-block; margin-left: 6px; font-size: 11px; font-weight: 700; color: #fff; background: var(--blue); border-radius: 99px; padding: 0 7px; }
+/* planning agent */
+.spark { color: var(--accent, #2563eb); vertical-align: middle; }
+.row-warn td { background: #fff7ed; }
+.grid.cols-3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px 14px; margin-bottom: 10px; }
+@media (max-width: 760px) { .grid.cols-3 { grid-template-columns: 1fr; } }

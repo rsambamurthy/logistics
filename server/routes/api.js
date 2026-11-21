@@ -28,6 +28,9 @@ import { rateLimit, failureLimit } from '../lib/rateLimit.js';
 import { auditMiddleware, listAudit } from '../services/audit.js';
 import { onboardingStatus } from '../services/onboarding.js';
 import { createJobFromQuote, listJobs, loadJob, updateJob, setMilestone, sendBookingRequest, sendAllBookingRequests, updateBooking, readBookingEmail, sendCustomerConfirmation, addCost, deleteCost, addFiles, getFile, deleteFile, upcomingCutoffs, jobCounts } from '../services/jobs.js';
+import { runDocCheck, getDocCheck } from '../services/documents.js';
+import { rfqPlanning, laneForecasts, rateCardRenewals, askForNewRates, paymentRisks, customerPaymentRisk, receivables, defaultDueDate } from '../services/insights.js';
+import { replyInsights } from '../services/replyForecast.js';
 import { setDocRequirement, requestDocuments, getSi, saveSi, prefillSi, renderSiPdf, sendSi, readBl, uploadBl, sendBlToCustomer, customerDecision, replyAgentOnBl, setFileKind, onCustomerJobEmail } from '../services/documents.js';
 import { publicTracking, tenantOfToken, refreshJob, addTrackingNumber, removeTracking, setJobTracking, resetTrackLink, trackToken, notifyMilestone, providerList } from '../services/tracking.js';
 import { sendStoredFile } from '../lib/security.js';
@@ -202,7 +205,7 @@ r.post('/mailboxes/:id/poll', h(async (req, res) => {
 }));
 
 // ---------- parties (one list: partner agents and/or customers) ----------
-const PARTY_FIELDS = ['company', 'contact', 'email', 'cc', 'country', 'city', 'agent_type', 'services', 'ports', 'notes', 'active', 'is_agent', 'is_customer', 'currency', 'margin_pct', 'tax_pct', 'quote_language'];
+const PARTY_FIELDS = ['company', 'contact', 'email', 'cc', 'country', 'city', 'agent_type', 'services', 'ports', 'notes', 'active', 'is_agent', 'is_customer', 'currency', 'margin_pct', 'tax_pct', 'quote_language', 'credit_days'];
 r.get('/agents', h(async (req, res) => {
   const role = req.query.role;
   const where = role === 'agent' ? 'WHERE is_agent' : role === 'customer' ? 'WHERE is_customer' : "WHERE coalesce(source,'') <> 'internal'";
@@ -228,6 +231,8 @@ r.get('/agents-stats', h(async (req, res) => {
     FROM agents a LEFT JOIN rfq_invites i ON i.agent_id=a.id GROUP BY a.id`));
 }));
 
+r.get('/rfqs/:id/replies', h(async (req, res) => res.json(await replyInsights(id(req)))));
+r.get('/rfqs/:id/planning', h(async (req, res) => res.json(await rfqPlanning(id(req)))));
 r.get('/agents/suggest', h(async (req, res) => {
   const legs = String(req.query.legs || '').split(',').filter(Boolean);
   const places = [req.query.pol, req.query.pod, req.query.pickup, req.query.delivery].filter(Boolean);
@@ -325,6 +330,8 @@ r.post('/rate-mail/:id/read', h(async (req, res) => res.json(await readRatesFrom
 r.post('/rate-mail/:id/apply', h(async (req, res) => res.json(await applyRateProposal(id(req), { cards: req.body.cards, agentId: req.body.agent_id, user: req.user }))));
 r.post('/rate-mail/:id/dismiss', h(async (req, res) => res.json(await dismissRateProposal(id(req), req.user))));
 r.post('/agent-quotes/:id/remember', h(async (req, res) => res.json({ cards: await rememberQuote(id(req)) })));
+r.get('/rate-cards/renewals', h(async (req, res) => res.json(await rateCardRenewals())));
+r.post('/rate-cards/:id/ask-rates', h(async (req, res) => res.json(await askForNewRates(id(req), req.user))));
 r.get('/rate-cards/:id', h(async (req, res) => res.json(await getCard(id(req)))));
 r.post('/rate-cards', h(async (req, res) => res.json(await saveCard(req.body))));
 r.put('/rate-cards/:id', h(async (req, res) => res.json(await saveCard({ ...req.body, id: id(req) }))));
@@ -465,6 +472,7 @@ const consolView = (req, d) => {
 };
 r.get('/consols', h(async (req, res) => { const list = await listConsols({ status: req.query.status }); res.json(req.user.perms.includes('costs.view') ? list : list.map((c) => ({ ...c, buy_rate: null, buy_fixed: null, economics: c.economics && { ...c.economics, cost: null, profit: null, revenue: null, gainValue: null, saving: null, standalone: null } }))); }));
 r.post('/consols', h(async (req, res) => res.json(await createConsol(req.body, req.user))));
+r.get('/consols/forecast', h(async (req, res) => res.json(await laneForecasts())));
 r.get('/consols/plan', h(async (req, res) => res.json(await agentPlan(req.query))));
 r.post('/consols/plan/review', h(async (req, res) => res.json(await agentReview(req.body))));
 r.post('/consols/plan/accept', h(async (req, res) => res.json(consolView(req, await acceptPlan(req.body, req.user)))));
@@ -486,7 +494,15 @@ r.get('/consols/:id/manifest.pdf', h(async (req, res) => {
   res.setHeader('content-disposition', `inline; filename="manifest-${c.ref}.pdf"`);
   res.end(pdf);
 }));
-r.put('/jobs/:id', h(async (req, res) => res.json(await updateJob(id(req), req.body))));
+r.put('/jobs/:id', h(async (req, res) => {
+  if (req.body.invoice_date && 'due_date' in req.body && !req.body.due_date) req.body.due_date = await defaultDueDate(id(req), req.body.invoice_date);
+  res.json(await updateJob(id(req), req.body));
+}));
+r.get('/jobs/:id/doc-check', h(async (req, res) => res.json(await getDocCheck(id(req)))));
+r.post('/jobs/:id/doc-check', h(async (req, res) => res.json(await runDocCheck(id(req)))));
+r.get('/receivables', h(async (req, res) => res.json(await receivables())));
+r.get('/customers/payment-risk', h(async (req, res) => res.json(await paymentRisks())));
+r.get('/agents/:id/payment-risk', h(async (req, res) => res.json(await customerPaymentRisk(id(req)))));
 r.put('/jobs/:id/owner', h(async (req, res) => {
   const owner = req.body.user_id ? Number(req.body.user_id) : null;
   if (owner && !(await one('SELECT 1 FROM users WHERE id=$1 AND disabled_at IS NULL', [owner]))) return res.status(400).json({ error: 'Choose an active user' });

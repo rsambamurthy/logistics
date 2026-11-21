@@ -11,6 +11,7 @@ import { ensureTracking } from './tracking.js';
 import { getFx, getSetting, getAiKey } from './settings.js';
 import { reviewConsolPlan } from './ai.js';
 import { audit } from './audit.js';
+import { shipOrWait } from './insights.js';
 import { createPdf, letterhead, kvRows, table, finish } from '../lib/pdf.js';
 
 const err = (msg, status = 400) => Object.assign(new Error(msg), { status });
@@ -91,7 +92,10 @@ export async function agentPlan({ windowDays, capacityKg, container } = {}) {
     p.economics = consolEconomics(priced, buy, p.mode);
     p.house_rows = hs.map((h) => ({ id: h.id, ref: h.ref, customer: h.customer, commodity: h.commodity, ready_date: h.ready_date, dangerous_goods: h.dangerous_goods, reefer_temp: h.reefer_temp, ...h.weights }));
   }
-  return { options: opts, currency: fx.base, plans, unplanned: unplanned.map((u) => ({ ...u, ref: byId[u.id]?.ref || null, mode: byId[u.id]?.mode })), candidates: houses.length, ai: !!(await getAiKey()) };
+  // lone shipments: hold for a partner or ship now
+  const lone = unplanned.filter((u) => byId[u.id] && /No other/.test(u.reason)).map((u) => byId[u.id]);
+  const advice = await shipOrWait(lone).catch(() => ({}));
+  return { options: opts, currency: fx.base, plans, unplanned: unplanned.map((u) => ({ ...u, ref: byId[u.id]?.ref || null, mode: byId[u.id]?.mode, customer: byId[u.id]?.customer || null, lane: byId[u.id] ? `${byId[u.id].origin || '?'} → ${byId[u.id].destination || '?'}` : null, ship_or_wait: advice[u.id] || null })), candidates: houses.length, ai: !!(await getAiKey()) };
 }
 
 /** Ask the AI to review a plan: cargo that should not fly together, documents, handling advice. */

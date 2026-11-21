@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { api } from '../api.js';
 import { useMeta } from '../components/meta.jsx';
+import { RateCardRenewals } from '../components/planning.jsx';
+import { useCan } from '../components/session.js';
 import { PageHeader, Card, Table, Button, Modal, FormGrid, Field, Select, Badge, Loading, ErrorBox, useLoad, useAction, fmtDate, money } from '../components/ui.jsx';
 import { ChargeLinesTable } from '../components/rfq.jsx';
 
@@ -23,6 +25,7 @@ function status(c) {
 
 export default function RateCards() {
   const meta = useMeta();
+  const can = useCan();
   const [filters, setFilters] = useState({ leg: '', vendor: '', status: '', source: '' });
   const qs = new URLSearchParams(Object.entries(filters).filter(([, v]) => v)).toString();
   const list = useLoad(() => api.get(`/rate-cards${qs ? `?${qs}` : ''}`), [qs]);
@@ -44,6 +47,7 @@ export default function RateCards() {
         </>}
       />
       <RateMailPanel onApplied={() => list.reload()} />
+      <RateCardRenewals canManage={can('ratecards.manage')} />
       <Card actions={null}>
         <div className="row gap wrap filters" style={{ marginBottom: 12 }}>
           <Select placeholder="All legs" options={meta.legOptions} value={filters.leg} onChange={(e) => setFilters({ ...filters, leg: e.target.value })} />

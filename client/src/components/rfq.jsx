@@ -82,6 +82,7 @@ export function ShipmentForm({ value, onChange, parties = [], mailboxes = [] }) 
         <Field label="Gross weight (kg)">{inp('gross_weight_kg', { type: 'number' })}</Field>
         <Field label="Commodity">{inp('commodity')}</Field>
         <Field label="Cargo ready date">{inp('ready_date', { type: 'date' })}</Field>
+        <Field label="Must arrive by" hint="Optional: used for mode advice and the best combination">{inp('deliver_by', { type: 'date' })}</Field>
         <Field label="Agents reply by">{inp('deadline', { type: 'datetime-local' })}</Field>
         <Field label="HS code">{inp('hs_code', { placeholder: 'e.g. 8708.99' })}</Field>
         <Field label="Dimensions">{inp('dimensions', { placeholder: 'e.g. 4 pallets 120x100x150 cm' })}</Field>

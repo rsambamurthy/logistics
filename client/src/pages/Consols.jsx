@@ -2,6 +2,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api.js';
+import { ShipOrWait, LaneForecast } from '../components/planning.jsx';
 import { PageHeader, Card, Button, Table, Tabs, Badge, Field, Input, Select, Modal, Loading, ErrorBox, useLoad, useAction, money, fmtDate } from '../components/ui.jsx';
 import { ConsolStats, FreeSpace, HouseWeights, ConsolStatus, VERDICT } from '../components/consol.jsx';
 import { useCan } from '../components/session.js';
@@ -12,8 +13,10 @@ export default function Consols() {
   return (
     <>
       <PageHeader title="Consolidation" sub="Several shipments under one master air waybill or in one container. The consolidation agent plans which ones travel together." />
-      <Tabs active={tab} onChange={setTab} tabs={[...(can('costs.view') && can('jobs.manage') ? [{ key: 'agent', label: 'Consolidation agent' }] : []), { key: 'consols', label: 'Consols' }]} />
-      {tab === 'agent' ? <AgentPlan onAccepted={() => setTab('consols')} /> : <ConsolList />}
+      <Tabs active={tab} onChange={setTab} tabs={[...(can('costs.view') && can('jobs.manage') ? [{ key: 'agent', label: 'Consolidation agent' }] : []), { key: 'consols', label: 'Consols' }, { key: 'space', label: 'Space planning' }]} />
+      {tab === 'agent' && <AgentPlan onAccepted={() => setTab('consols')} />}
+      {tab === 'consols' && <ConsolList />}
+      {tab === 'space' && <LaneForecast />}
     </>
   );
 }
@@ -121,7 +124,9 @@ function AgentPlan({ onAccepted }) {
               <Table rows={p.unplanned} columns={[
                 { label: 'Job', render: (u) => (u.ref ? <a href={`/jobs/${u.id}`} onClick={(e) => { e.preventDefault(); nav(`/jobs/${u.id}`); }}>{u.ref}</a> : u.id) },
                 { label: 'Mode', render: (u) => u.mode || '—' },
+                { label: 'Lane', render: (u) => <span className="small">{u.lane || '—'}{u.customer ? <div className="muted">{u.customer}</div> : null}</span> },
                 { label: 'Why', key: 'reason' },
+                { label: 'Ship now or wait?', render: (u) => <ShipOrWait s={u.ship_or_wait} /> },
               ]} />
             </Card>
           )}

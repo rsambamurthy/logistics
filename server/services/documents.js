@@ -5,7 +5,8 @@ import { mailRequester, mailBookingAgent, filesForMail } from './requesterMail.j
 import { documentRequestEmail, siEmail, blToCustomerEmail, blDecisionEmail, fmtDT } from './templates.js';
 import { checklist, missingFromCustomer, compareToSi, correctionsText, docName, DOC_TYPES } from '../engines/documents.js';
 import { blocksFor } from './extract.js';
-import { readShippingInstruction, readBillOfLading, readCustomerJobEmail } from './ai.js';
+import { readShippingInstruction, readBillOfLading, readCustomerJobEmail, readCommercialDoc } from './ai.js';
+import { crossCheckDocs } from '../engines/docCheck.js';
 import { getSetting, getAiKey } from './settings.js';
 import { createPdf, letterhead, kvRows, boxes, table, finish } from '../lib/pdf.js';
 import { audit } from './audit.js';
@@ -302,4 +303,42 @@ export async function setFileKind(fileId, kind) {
   const f = await one('UPDATE job_files SET kind=$1 WHERE id=$2 RETURNING job_id', [kind, fileId]);
   if (!f) throw err('Not found', 404);
   return f.job_id;
+}
+
+// ---------------- document cross-check ----------------
+
+const DOC_NAMES = { invoice: 'Commercial invoice', packing_list: 'Packing list', si: 'Customer SI file' };
+
+/**
+ * Compare the facts on the invoice, packing list, our SI, the latest BL / AWB and the booking request.
+ * Files not read yet are read by AI first (when AI is set up). Result is kept on the job.
+ */
+export async function runDocCheck(jobId) {
+  const { job, rfq } = await ctx(jobId);
+  const files = await q("SELECT id, kind, filename, content_type, extracted FROM job_files WHERE job_id=$1 AND kind IN ('invoice','packing_list','si') ORDER BY id", [jobId]);
+  const ai = !!(await getAiKey());
+  const unread = [];
+  for (const f of files) {
+    if (f.extracted) continue;
+    if (!ai) { unread.push(f.filename); continue; }
+    try {
+      const data = await one('SELECT filename, content_type, data FROM job_files WHERE id=$1', [f.id]);
+      const blocks = await blocksFor([data]);
+      f.extracted = blocks.length ? await readCommercialDoc({ job, kind: f.kind, blocks }) : {};
+      await q('UPDATE job_files SET extracted=$1 WHERE id=$2', [JSON.stringify(f.extracted), f.id]);
+    } catch (e) { unread.push(f.filename); console.error('doc read failed', f.id, e.message); }
+  }
+  const sources = files.filter((f) => f.extracted && Object.keys(f.extracted).length).map((f) => ({ key: `file:${f.id}`, name: `${DOC_NAMES[f.kind] || 'Document'} (${f.filename})`, fields: f.extracted }));
+  const si = await one('SELECT data FROM shipping_instructions WHERE job_id=$1', [jobId]);
+  if (si?.data) sources.push({ key: 'si', name: 'Our shipping instructions', fields: si.data });
+  const bl = await one("SELECT id, is_final, extracted FROM bl_drafts WHERE job_id=$1 AND extracted IS NOT NULL AND extracted <> '{}'::jsonb ORDER BY id DESC LIMIT 1", [jobId]);
+  if (bl) sources.push({ key: `bl:${bl.id}`, name: rfq?.mode === 'AIR' ? (bl.is_final ? 'Air waybill' : 'Draft air waybill') : (bl.is_final ? 'Bill of lading' : 'Draft bill of lading'), fields: bl.extracted });
+  if (rfq) sources.push({ key: 'booking', name: 'Booking request', fields: { shipper: job.shipper, consignee: job.consignee, packages: rfq.packages, gross_weight_kg: rfq.gross_weight_kg, volume_cbm: rfq.volume_cbm, hs_code: rfq.hs_code, description: rfq.commodity, invoice_value: rfq.cargo_value } });
+  const result = { ...crossCheckDocs(sources), sources: sources.map((s) => s.name), unread, ai, checked_at: new Date().toISOString() };
+  await q('UPDATE jobs SET doc_check=$1 WHERE id=$2', [JSON.stringify(result), jobId]);
+  return result;
+}
+
+export async function getDocCheck(jobId) {
+  return (await one('SELECT doc_check FROM jobs WHERE id=$1', [jobId]))?.doc_check || null;
 }

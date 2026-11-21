@@ -1,3 +1,4 @@
+import { Receivables } from '../components/planning.jsx';
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api.js';
@@ -18,6 +19,7 @@ export default function Jobs() {
       <PageHeader title="Jobs" sub="Accepted quotations: bookings with partner agents, cut-offs, documents and profit" />
       {can('data.all') && <AtRisk />}
       {can('costs.view') && can('data.all') && <InvoicesToCheck />}
+      {can('data.all') && <Receivables />}
       {cut.data?.length ? <Card title="Cut-offs in the next 3 days"><CutoffList rows={cut.data} /></Card> : null}
       <Card
         title="Jobs"

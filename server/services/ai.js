@@ -433,6 +433,19 @@ const BL_TOOL = {
 };
 const clean = (o) => Object.fromEntries(Object.entries(o).filter(([, v]) => v !== null && v !== undefined && v !== '' && !(Array.isArray(v) && !v.length)));
 
+const COMMERCIAL_DOC_TOOL = {
+  name: 'record_document',
+  description: 'Record the shipment facts printed on one shipper document (commercial invoice or packing list).',
+  input_schema: { type: 'object', properties: { doc_type: { type: 'string', enum: ['invoice', 'packing_list', 'si', 'other'] }, ...SHIPPING_FIELDS, confidence: { type: 'number' } }, required: ['doc_type', 'confidence'] },
+};
+
+/** Read one invoice / packing list as printed, for the document cross-check. */
+export async function readCommercialDoc({ job, kind, blocks }) {
+  const system = `You read one shipper document (${kind || 'invoice or packing list'}) for a C&F agent who cross-checks it against the other shipping documents. Copy values exactly as printed; do not correct or guess. Totals: use the printed total; add up the lines only when no total is printed. Invoice value: currency and amount.`;
+  const content = [{ type: 'text', text: `Job ${job.ref}.` }, ...blocks];
+  return clean(await callTool({ system, content, tool: COMMERCIAL_DOC_TOOL, maxTokens: 3000 }));
+}
+
 /** Pre-fill shipping instructions from the shipper's documents. */
 export async function readShippingInstruction({ job, rfq, blocks }) {
   const system = `You prepare shipping instructions for a C&F agent from the shipper's commercial invoice, packing list and any SI they sent. Use only what the documents say; leave anything unknown empty. Totals: add up the packing list when no total is printed.`;

@@ -1,4 +1,5 @@
 // Sell-side quotation for an RFQ: options (incl. linked sea/air alternatives), revisions, approvals, sending, outcome.
+import { PaymentRisk } from './planning.jsx';
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../api.js';
@@ -114,6 +115,7 @@ export default function CustomerQuoteTab({ data, selection, reload, goCompare })
 
   return (
     <>
+      {can('quotes.prepare') && rfq.requester_id && <PaymentRisk customerId={rfq.requester_id} compact />}
       {can('quotes.prepare') && <Card
         title={isAgent ? `Quote for partner agent ${rfq.requester_name || ''}` : 'Build quotation'}
         actions={<>

@@ -48,7 +48,7 @@ export async function agentHistory() {
     const replied = !!i.replied_at || !!qt;
     const ranks = rank[i.id];
     return {
-      agent_id: i.agent_id, lane: laneOf(i), replied, declined: !!qt?.declined, awarded: !!i.awarded,
+      invite_id: i.id, agent_id: i.agent_id, sent_at: i.sent_at, lane: laneOf(i), replied, declined: !!qt?.declined, awarded: !!i.awarded,
       reply_hours: i.replied_at && i.sent_at ? (new Date(i.replied_at) - new Date(i.sent_at)) / 3600000 : null,
       price_rank: ranks?.length ? ranks.reduce((s, x) => s + x, 0) / ranks.length : null,
       booking: i.booking || null,

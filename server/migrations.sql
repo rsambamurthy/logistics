@@ -356,3 +356,15 @@ CREATE INDEX IF NOT EXISTS agent_invoices_job_idx ON agent_invoices(job_id);
 -- 22. Delay prediction: first ETA seen (to learn punctuality) and the latest assessment
 ALTER TABLE jobs ADD COLUMN IF NOT EXISTS first_eta TEXT;
 ALTER TABLE jobs ADD COLUMN IF NOT EXISTS delay_risk JSONB;
+
+-- 23. Planning agent: must-arrive date, document cross-check, customer invoices (receivables)
+ALTER TABLE rfqs ADD COLUMN IF NOT EXISTS deliver_by DATE;
+ALTER TABLE job_files ADD COLUMN IF NOT EXISTS extracted JSONB;
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS doc_check JSONB;
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS invoice_no TEXT;
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS invoice_date DATE;
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS invoice_amount NUMERIC;
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS invoice_currency TEXT;
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS due_date DATE;
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS paid_at DATE;
+ALTER TABLE agents ADD COLUMN IF NOT EXISTS credit_days INT;

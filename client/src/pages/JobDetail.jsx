@@ -12,6 +12,7 @@ import OwnerPicker from '../components/OwnerPicker.jsx';
 import { PiecesEditor } from '../components/consol.jsx';
 import AgentInvoices from '../components/AgentInvoices.jsx';
 import DelayRisk from '../components/DelayRisk.jsx';
+import { DocCheck, JobInvoice } from '../components/planning.jsx';
 import { useCan } from '../components/session.js';
 
 
@@ -277,10 +278,10 @@ export default function JobDetail() {
         ]}
       />
       <ReadOnly when={!can('jobs.manage')}>
-      {tab === 'overview' && <Overview d={d.data} set={set} />}
+      {tab === 'overview' && <div className="stack"><Overview d={d.data} set={set} /><JobInvoice job={d.data.job} canManage={can('jobs.manage')} onChanged={async () => set(await api.get(`/jobs/${d.data.job.id}`))} /></div>}
       {tab === 'bookings' && <Bookings d={d.data} set={set} />}
       {tab === 'costs' && can('costs.view') && <div className="stack"><AgentInvoices d={d.data} /><Costs d={d.data} set={set} /></div>}
-      {tab === 'docs' && <JobDocuments d={d.data} set={set} />}
+      {tab === 'docs' && <div className="stack"><DocCheck jobId={d.data.job.id} canManage={can('jobs.manage')} /><JobDocuments d={d.data} set={set} /></div>}
       {tab === 'emails' && <Emails d={d.data} set={set} />}
       </ReadOnly>
       {tab === 'history' && <Card title="History">{history.loading && !history.data ? <Loading /> : <ActivityList rows={history.data || []} showRfq={false} />}</Card>}

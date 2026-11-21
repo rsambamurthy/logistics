@@ -8,8 +8,10 @@ import { compare, convert, quoteTotals } from '../engines/costing.js';
 import { chargeProfile, missingCharges, missingChargesMessage } from '../engines/chargeCheck.js';
 import { getFx } from './settings.js';
 import { audit } from './audit.js';
+import { invitesDueToChase } from './replyForecast.js';
+import { bestCombination } from '../engines/planning.js';
 
-const RFQ_FIELDS = ['requester_id', 'requester_role', 'requester_ref', 'source_email_id', 'parent_rfq_id', 'hs_code', 'dangerous_goods', 'dg_class', 'un_number', 'reefer_temp', 'dimensions', 'cargo_value', 'cargo_value_currency', 'stackable', 'mailbox_id', 'mode', 'pol', 'pod', 'pickup_place', 'delivery_place', 'incoterm', 'commodity', 'containers', 'packages', 'package_type', 'gross_weight_kg', 'volume_cbm', 'ready_date', 'deadline', 'notes', 'legs'];
+const RFQ_FIELDS = ['requester_id', 'requester_role', 'requester_ref', 'source_email_id', 'parent_rfq_id', 'hs_code', 'dangerous_goods', 'dg_class', 'un_number', 'reefer_temp', 'dimensions', 'cargo_value', 'cargo_value_currency', 'stackable', 'mailbox_id', 'mode', 'pol', 'pod', 'pickup_place', 'delivery_place', 'incoterm', 'commodity', 'containers', 'packages', 'package_type', 'gross_weight_kg', 'volume_cbm', 'ready_date', 'deliver_by', 'deadline', 'notes', 'legs'];
 
 function clean(v) {
   return v === '' || v === undefined ? null : v;
@@ -139,7 +141,31 @@ export async function compareRfq(id, currency) {
   const a = cheapest('total');
   const b = cheapest('like_for_like');
   if (a && b && a !== b) cmp.like_for_like_note = `${a.invite.agent_company || 'The cheapest quote'} is cheapest as quoted, but with the usual missing charges added ${b.invite.agent_company || 'another agent'} is cheaper.`;
+  cmp.smart = smartCombination(cmp, data.rfq);
   return cmp;
+}
+
+/**
+ * Agent's best combination: cheapest like-for-like mix of agents across legs that still arrives by the
+ * must-arrive date, with each extra agent counted as a small hand-off cost (more parties, more risk).
+ */
+function smartCombination(cmp, rfq) {
+  const usable = cmp.columns.filter((c) => c.status === 'quoted' && !c.flags.some((f) => f.type === 'expired'));
+  if (!usable.length || !cmp.legs.length) return null;
+  const spread = (c) => (c.total > 0 ? (c.like_for_like || c.total) / c.total : 1); // missing charges spread over the quote's legs
+  const quotes = usable.map((c) => ({ id: c.quote.id, agent: c.invite.agent_company, transit_days: c.quote.transit_days ?? null, legs: Object.fromEntries(Object.entries(c.legs).map(([l, v]) => [l, Math.round(v.total * spread(c) * 100) / 100])) }));
+  let maxTransit = null;
+  if (rfq.deliver_by) {
+    const start = rfq.ready_date ? new Date(rfq.ready_date) : new Date();
+    maxTransit = Math.floor((new Date(rfq.deliver_by) - start) / 864e5) - (rfq.mode === 'AIR' ? 2 : 4);
+  }
+  const handoffCost = Math.round((cmp.bestMixTotal || 0) * 0.015 * 100) / 100;
+  let best = bestCombination(quotes, cmp.legs, { maxTransit, handoffCost });
+  let note = null;
+  if (!best && maxTransit !== null) { best = bestCombination(quotes, cmp.legs, { handoffCost }); note = 'No quote arrives by the must-arrive date; this is the best without that limit.'; }
+  if (!best) return null;
+  const names = Object.fromEntries(quotes.map((x) => [x.id, x.agent]));
+  return { ...best, handoff_cost: handoffCost, max_transit: maxTransit, note, agent_names: [...new Set(Object.values(best.selection).map((id) => names[id]))] };
 }
 
 // usual charges per mode and leg, learnt from the last 18 months of agent quotes (cached 30 min)
@@ -226,14 +252,9 @@ export async function counterInvite(inviteId, message) {
 }
 
 /** Scheduled: remind agents who have not replied after the mailbox's reminder interval. */
+/** Chase agents when they are later than they usually are (per-agent forecast; mailbox interval for new agents). */
 export async function autoRemind() {
-  const due = await q(
-    `SELECT i.id FROM rfq_invites i JOIN rfqs r ON r.id=i.rfq_id JOIN mailboxes m ON m.id=r.mailbox_id
-     WHERE i.status IN ('sent','reminded') AND r.status IN ('sent','quoting')
-       AND i.reminder_count < m.max_reminders AND m.reminder_hours > 0
-       AND coalesce(i.last_reminder_at, i.sent_at) < now() - (m.reminder_hours || ' hours')::interval
-       AND (r.deadline IS NULL OR r.deadline > now())`
-  );
+  const due = (await invitesDueToChase()).map((id) => ({ id }));
   for (const d of due) {
     try {
       await remindInvite(d.id);

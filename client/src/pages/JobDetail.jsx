@@ -9,6 +9,7 @@ import ActivityList from '../components/ActivityList.jsx';
 import JobDocuments from '../components/JobDocuments.jsx';
 import JobTracking from '../components/JobTracking.jsx';
 import OwnerPicker from '../components/OwnerPicker.jsx';
+import { PiecesEditor } from '../components/consol.jsx';
 import { useCan } from '../components/session.js';
 
 
@@ -41,6 +42,7 @@ function Overview({ d, set, reload }) {
           {d.profit && <div><dt>Profit</dt><dd className={d.profit.profit < 0 ? 'err' : ''}>{money(d.profit.profit, d.profit.currency)}</dd></div>}
         </dl>
       </Card>
+      {d.consol && <div className="alert alert-blue small">Travels in consolidation <Link to={`/consols/${d.consol.id}`}><b>{d.consol.ref}</b></Link>{job.hawb ? ` as house ${job.hawb}` : ''}{d.consol.mawb ? `, master ${d.consol.mawb}` : ''}. Departure, arrival and tracking come from the consol.</div>}
       <JobTracking d={d} set={set} />
       <Card title="Shipment" actions={<Link to={`/rfqs/${rfq?.id}`}>Open {job.rfq_ref}</Link>}>
         <dl className="kv">
@@ -52,6 +54,12 @@ function Overview({ d, set, reload }) {
           <div><dt>Commodity</dt><dd>{rfq?.commodity || '—'}</dd></div>
         </dl>
       </Card>
+      {['AIR', 'LCL'].includes(rfq?.mode) && (
+        <Card title="Pieces and dimensions">
+          <PiecesEditor key={JSON.stringify(job.pieces || [])} value={job.pieces} busy={busy === 'pcs'} onSave={(rows) => run('pcs', async () => set(await api.put(`/jobs/${job.id}/pieces`, { pieces: rows })), 'Dimensions saved')} />
+          <p className="small muted">Used for chargeable weight and by the consolidation agent. Without dimensions the shipment's cbm is used.</p>
+        </Card>
+      )}
       <Card title="Parties and dates" actions={<Button small busy={busy === 'save'} onClick={() => run('save', async () => set(await api.put(`/jobs/${job.id}`, form)), 'Saved')}>Save</Button>}>
         <div className="grid g4">
           <Field label="Cargo ready date"><Input type="date" {...field('cargo_ready_date')} /></Field>
@@ -181,12 +189,12 @@ function Costs({ d, set }) {
         <Table
           rows={d.costs}
           columns={[
-            { label: '', render: (c) => <Badge color={c.kind === 'sell' ? 'green' : 'blue'}>{c.kind === 'sell' ? 'Sell' : 'Buy'}</Badge> },
+            { label: '', render: (c) => <Badge color={c.kind === 'sell' ? 'green' : c.kind === 'buy_replaced' ? 'grey' : 'blue'}>{c.kind === 'sell' ? 'Sell' : c.kind === 'buy_replaced' ? 'Set aside' : 'Buy'}</Badge> },
             { label: 'Leg', render: (c) => (c.leg ? meta.legName(c.leg) : '—') },
             { key: 'description', label: 'Description' },
             { label: 'Agent', render: (c) => c.agent || '' },
             { label: 'Amount', render: (c) => money(c.amount, c.currency), align: 'right' },
-            { label: 'Source', render: (c) => <span className="small muted">{c.source === 'quote' ? 'from quotation' : 'added'}</span> },
+            { label: 'Source', render: (c) => <span className="small muted">{c.kind === 'buy_replaced' ? 'replaced by the consol cost' : c.source === 'quote' ? 'from quotation' : c.source === 'consol' ? 'consol share' : 'added'}</span> },
             { label: '', render: (c) => <Button small variant="ghost" busy={busy === `d${c.id}`} onClick={() => confirm('Delete this line?') && run(`d${c.id}`, async () => set(await api.del(`/job-costs/${c.id}`)))}>Delete</Button> },
           ]}
         />

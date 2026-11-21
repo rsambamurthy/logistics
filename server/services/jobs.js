@@ -94,7 +94,8 @@ export async function loadJob(id) {
        FROM emails e WHERE e.job_id=$1 ORDER BY e.at DESC`, [id]),
   ]);
   const fx = await getFx();
-  return { job, rfq, bookings, costs, files, emails, docs: await documentsState(job, rfq, files), tracking: await trackingState(id), profit: jobProfit(costs, fx), profit_quote_currency: job.sell_currency ? jobProfit(costs, fx, job.sell_currency) : null };
+  const consol = job.consol_id ? await one('SELECT id, ref, status, mawb, mode FROM consols WHERE id=$1', [job.consol_id]) : null;
+  return { job, rfq, consol, bookings, costs, files, emails, docs: await documentsState(job, rfq, files), tracking: await trackingState(id), profit: jobProfit(costs, fx), profit_quote_currency: job.sell_currency ? jobProfit(costs, fx, job.sell_currency) : null };
 }
 
 export async function updateJob(id, body) {

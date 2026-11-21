@@ -273,3 +273,11 @@ fieldset.readonly .btn { opacity: .5; cursor: not-allowed; }
 .check-item input { flex: none; width: 16px; height: 16px; margin-top: 3px; }
 .role-pills { display: flex; flex-wrap: wrap; gap: 4px; }
 .level-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+/* consolidation */
+.stat.good b { color: #15803d; }
+.stat.bad b { color: #b91c1c; }
+.alert-green { background: #ecfdf5; border: 1px solid #a7f3d0; color: #065f46; }
+.spacer { flex: 1; }
+ul.reasons { margin: 8px 0; padding-left: 18px; }
+ul.reasons li { margin: 2px 0; }

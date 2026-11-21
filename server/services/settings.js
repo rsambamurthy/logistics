@@ -17,6 +17,7 @@ export const DEFAULTS = {
     buffer_pct: 1,
     rates: { USD: 84.5, HKD: 10.85, EUR: 91.5, CNY: 11.7, SGD: 63, AED: 23, GBP: 107 },
   },
+  consol: { window_days: 3, capacity_kg: null, container: '40HC' }, // consolidation agent
   pricing: {
     default_margin_pct: 10,
     default_agent_margin_pct: 5,

@@ -310,3 +310,27 @@ CREATE INDEX IF NOT EXISTS emails_parse_status_idx ON emails(parse_status);
 -- 19. Package type on rate card charges and on the shipment (per-package pricing)
 ALTER TABLE rate_card_lines ADD COLUMN IF NOT EXISTS package_type TEXT;
 ALTER TABLE rfqs ADD COLUMN IF NOT EXISTS package_type TEXT;
+
+-- 20. Consolidation: consols (masters) holding several jobs (houses); pieces with dimensions
+CREATE TABLE IF NOT EXISTS consols (
+  id SERIAL PRIMARY KEY,
+  ref TEXT UNIQUE NOT NULL,
+  mode TEXT NOT NULL,                              -- AIR | LCL
+  origin TEXT, destination TEXT,
+  carrier TEXT, flight_no TEXT, vessel TEXT, voyage TEXT,
+  etd DATE, eta DATE, cutoff TIMESTAMPTZ,
+  mawb TEXT,                                       -- master AWB (air) / master BL (sea)
+  container_type TEXT,
+  agent_id INT REFERENCES agents(id) ON DELETE SET NULL,
+  buy_currency TEXT, buy_rate NUMERIC, buy_min NUMERIC, buy_fixed NUMERIC,
+  capacity_kg NUMERIC,
+  status TEXT NOT NULL DEFAULT 'planning',         -- planning | closed | departed | arrived | cancelled
+  notes TEXT,
+  created_by INT,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  closed_at TIMESTAMPTZ
+);
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS consol_id INT REFERENCES consols(id) ON DELETE SET NULL;
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS hawb TEXT;
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS pieces JSONB;
+CREATE INDEX IF NOT EXISTS jobs_consol_idx ON jobs(consol_id);

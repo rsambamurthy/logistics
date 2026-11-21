@@ -475,4 +475,36 @@ export async function readCustomerJobEmail({ job, email, attachments, blocks }) 
   return callTool({ system, content, tool: CUSTOMER_JOB_TOOL, maxTokens: 1500 });
 }
 
+const CONSOL_REVIEW_TOOL = {
+  name: 'review_consolidation_plan',
+  description: 'Review planned consolidations (several shipments under one master air waybill or in one container).',
+  input_schema: {
+    type: 'object',
+    properties: {
+      consols: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            consol: { type: 'integer', description: 'Consol number from the plan' },
+            verdict: { type: 'string', enum: ['ok', 'check', 'split'], description: 'ok = fine to consolidate; check = possible, a person must check the issues; split = these should not travel together' },
+            issues: { type: 'array', items: { type: 'string' }, description: 'Concrete problems: DG segregation and airline acceptance, temperature, perishables or pharma handling, odour or contamination (food with chemicals), heavy or non-stackable pieces on light cargo, valuables, live animals, lithium batteries, special permits' },
+            advice: { type: 'string', description: 'One or two sentences: what to do (documents, labels, handling, which house to move)' },
+          },
+          required: ['consol', 'verdict', 'issues', 'advice'],
+        },
+      },
+      summary: { type: 'string', description: 'One short paragraph for the consolidation desk' },
+    },
+    required: ['consols', 'summary'],
+  },
+};
+
+/** Consolidation agent: review a plan for cargo that should not travel together. */
+export async function reviewConsolPlan(brief) {
+  const system = `You are the consolidation agent for a freight forwarder's air and LCL desk. A packing algorithm has already grouped shipments by lane, date and density to maximise the weight gain. Your job is the cargo-handling review a careful consolidation manager would do: IATA DGR segregation and acceptance, temperature control, food or pharma with chemicals, fragile or non-stackable cargo, lithium batteries, valuables. Be specific and practical; do not invent facts that are not in the data. If nothing is wrong, say ok with no issues.`;
+  const out = await callTool({ system, content: [{ type: 'text', text: JSON.stringify(brief, null, 1).slice(0, 60000) }], tool: CONSOL_REVIEW_TOOL, maxTokens: 3000 });
+  return { consols: Array.isArray(out.consols) ? out.consols : [], summary: out.summary || '' };
+}
+
 export { CURRENCIES };

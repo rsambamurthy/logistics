@@ -19,6 +19,8 @@ import Reports from './pages/Reports.jsx';
 import Settings, { settingsSections } from './pages/Settings.jsx';
 import Jobs from './pages/Jobs.jsx';
 import JobDetail from './pages/JobDetail.jsx';
+import Consols from './pages/Consols.jsx';
+import ConsolDetail from './pages/ConsolDetail.jsx';
 import Track from './pages/Track.jsx';
 
 // Settings sections as sidebar groups (VendorGate style: administration pages live in the sidebar).
@@ -54,6 +56,7 @@ function Shell({ user, tenant, access, onLogout }) {
     { to: '/', label: 'RFQs', icon: 'rfqs', end: true, show: can('rfqs.view') },
     { to: '/rfqs/new', label: 'New RFQ', icon: 'plus', end: true, show: can('rfqs.edit') },
     { to: '/jobs', label: 'Jobs', icon: 'jobs', show: can('jobs.view') },
+    { to: '/consols', label: 'Consolidation', icon: 'consol', show: can('jobs.view') && can('data.all') },
     { to: '/inbox', label: 'Unmatched mail', icon: 'mail', show: can('inbox.view'), count: unmatched, countLabel: 'emails waiting' },
     { to: '/reports', label: 'Reports', icon: 'reports', show: can('reports.view') },
   ].filter((l) => l.show);
@@ -76,6 +79,8 @@ function Shell({ user, tenant, access, onLogout }) {
           <Route path="/rfqs/:id" element={<RfqDetail />} />
           <Route path="/jobs" element={<Jobs />} />
           <Route path="/jobs/:id" element={<JobDetail />} />
+          <Route path="/consols" element={<Consols />} />
+          <Route path="/consols/:id" element={<ConsolDetail />} />
           <Route path="/inbox" element={<Inbox />} />
           <Route path="/reports" element={<Reports />} />
           <Route path="/agents" element={<Navigate to="/settings/partner-agents" replace />} />

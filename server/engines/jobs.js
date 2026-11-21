@@ -48,7 +48,7 @@ export function jobProfit(costs, fx, currency = fx.base) {
       continue;
     }
     if (c.kind === 'sell') sell += v;
-    else buy += v;
+    else if (c.kind === 'buy') buy += v; // 'buy_replaced' = freight cost set aside by a consol
   }
   const profit = sell - buy;
   return { currency, buy: round2(buy), sell: round2(sell), profit: round2(profit), margin_pct: sell ? round2((profit / sell) * 100) : 0, errors: [...new Set(errors)] };

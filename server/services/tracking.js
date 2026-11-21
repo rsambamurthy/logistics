@@ -37,6 +37,9 @@ async function identifiers(job) {
   const air = rfq?.mode === 'AIR';
   const bookings = await q("SELECT * FROM bookings WHERE job_id=$1 AND status<>'cancelled' AND 'freight' = ANY(legs)", [job.id]);
   const out = [];
+  // a house in a consol is tracked on the consol's master AWB / BL
+  const consol = job.consol_id ? await one('SELECT mawb FROM consols WHERE id=$1', [job.consol_id]) : null;
+  if (consol?.mawb) out.push({ booking_id: null, mode: air ? 'air' : 'sea', number: air ? consol.mawb.replace(/\s+/g, '') : consol.mawb.trim(), number_type: air ? 'AWB' : 'BL' });
   for (const b of bookings) {
     if (air) {
       if (b.mbl_awb) out.push({ booking_id: b.id, mode: 'air', number: b.mbl_awb.replace(/\s+/g, ''), number_type: 'AWB' });

@@ -11,6 +11,7 @@ const PATHS = {
   config: 'M4 4h16v16H4zM8 9h8M8 13h8M8 17h5',
   platform: 'M3 21h18M5 21V7l7-4 7 4v14M9 9h1M14 9h1M9 13h1M14 13h1M9 17h1M14 17h1',
   workspace: 'M3 21h18M5 21V7l7-4 7 4v14M9 9h1M14 9h1M9 13h1M14 13h1M9 17h1M14 17h1',
+  consol: 'M3 8l9-5 9 5-9 5zM3 8v8l9 5 9-5V8M12 13v8',
   chevron: 'M6 9l6 6 6-6',
   menu: 'M3 6h18M3 12h18M3 18h18',
   logout: 'M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9',

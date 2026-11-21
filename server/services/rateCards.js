@@ -83,7 +83,7 @@ export async function expiringCount() {
   return r;
 }
 
-async function loadActiveCards() {
+export async function loadActiveCards() {
   const cards = await q('SELECT * FROM rate_cards WHERE active');
   if (!cards.length) return [];
   const lines = await q('SELECT * FROM rate_card_lines WHERE rate_card_id = ANY($1) ORDER BY sort, id', [cards.map((c) => c.id)]);

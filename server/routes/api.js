@@ -14,6 +14,7 @@ import { attachmentBlocks } from '../services/extract.js';
 import { parseEnquiry, readRateSheet } from '../services/ai.js';
 import { previewCustomerQuote, saveCustomerQuote, renderPdf, emailCustomerQuote, followUpQuote, markLost, LOST_REASONS, decideApproval, acceptQuote, rfqFamily, approvalFor, withApprovalRights, approvableRoles } from '../services/customerQuote.js';
 import { roleExists } from '../services/roles.js';
+import { agentPlan, agentReview, acceptPlan, listConsols, createConsol, loadConsol, updateConsol, deleteConsol, addHouses, updateHouse, removeHouse, setConsolStatus, applyCosts, manifestPdf, setPieces } from '../services/consol.js';
 import { readRatesFromEmail, pendingRateMail, rateProposal, applyRateProposal, dismissRateProposal } from '../services/rateMail.js';
 import { LANGUAGES } from '../services/i18n.js';
 import { reports } from '../services/reports.js';
@@ -136,7 +137,11 @@ r.put('/settings/tracking', h(async (req, res) => { await saveTracking(req.body)
 r.get('/tracking/providers', h(async (req, res) => res.json(providerList())));
 r.put('/settings/ai', h(async (req, res) => { await saveAi(req.body); res.json(await getAllPublic()); }));
 r.put('/settings/:key', h(async (req, res) => {
-  if (!['company', 'fx', 'pricing'].includes(req.params.key)) return res.status(400).json({ error: 'Unknown setting' });
+  if (!['company', 'fx', 'pricing', 'consol'].includes(req.params.key)) return res.status(400).json({ error: 'Unknown setting' });
+  if (req.params.key === 'consol') {
+    const b = req.body || {};
+    req.body = { window_days: Math.min(30, Math.max(0, Number(b.window_days ?? 3) || 0)), capacity_kg: Number(b.capacity_kg) > 0 ? Number(b.capacity_kg) : null, container: ['20GP', '40GP', '40HC'].includes(b.container) ? b.container : '40HC' };
+  }
   if (req.params.key === 'pricing' && req.body.approval_levels !== undefined) {
     const levels = Array.isArray(req.body.approval_levels) ? req.body.approval_levels : [];
     const clean = [];
@@ -437,6 +442,39 @@ r.post('/customer-quotes/:id/job', h(async (req, res) => res.json({ job: await c
 r.get('/jobs', h(async (req, res) => res.json(await listJobs(req.query))));
 r.get('/jobs/cutoffs', h(async (req, res) => res.json(await upcomingCutoffs(Number(req.query.hours) || 72))));
 r.get('/jobs/:id', h(async (req, res) => res.json(await loadJob(id(req)))));
+r.put('/jobs/:id/pieces', h(async (req, res) => { await setPieces(id(req), req.body.pieces); res.json(await loadJob(id(req))); }));
+
+// ---------------- consolidation ----------------
+// buy rates, cost and profit only for roles that see costs
+const consolView = (req, d) => {
+  if (req.user.perms.includes('costs.view')) return d;
+  const strip = (e) => e && { ...e, cost: null, profit: null, saving: null, standalone: null, gainValue: null, revenue: null };
+  const c = d.consol ? { ...d.consol, buy_rate: null, buy_min: null, buy_fixed: null } : undefined;
+  return { ...d, consol: c, economics: strip(d.economics), card_rate: null, houses: d.houses?.map((h) => ({ ...h, sell_amount: null, standalone_cost: null })) };
+};
+r.get('/consols', h(async (req, res) => { const list = await listConsols({ status: req.query.status }); res.json(req.user.perms.includes('costs.view') ? list : list.map((c) => ({ ...c, buy_rate: null, buy_fixed: null, economics: c.economics && { ...c.economics, cost: null, profit: null, revenue: null, gainValue: null, saving: null, standalone: null } }))); }));
+r.post('/consols', h(async (req, res) => res.json(await createConsol(req.body, req.user))));
+r.get('/consols/plan', h(async (req, res) => res.json(await agentPlan(req.query))));
+r.post('/consols/plan/review', h(async (req, res) => res.json(await agentReview(req.body))));
+r.post('/consols/plan/accept', h(async (req, res) => res.json(consolView(req, await acceptPlan(req.body, req.user)))));
+r.get('/consols/:id', h(async (req, res) => res.json(consolView(req, await loadConsol(id(req))))));
+r.put('/consols/:id', h(async (req, res) => {
+  if (!req.user.perms.includes('costs.view')) for (const k of ['buy_rate', 'buy_min', 'buy_fixed', 'buy_currency']) delete req.body[k];
+  res.json(consolView(req, await updateConsol(id(req), req.body, req.user)));
+}));
+r.delete('/consols/:id', h(async (req, res) => res.json(await deleteConsol(id(req), req.user))));
+r.post('/consols/:id/houses', h(async (req, res) => res.json(consolView(req, await addHouses(id(req), req.body.job_ids || [], req.user)))));
+r.put('/consols/:id/houses/:jobId', h(async (req, res) => res.json(consolView(req, await updateHouse(id(req), Number(req.params.jobId), req.body)))));
+r.delete('/consols/:id/houses/:jobId', h(async (req, res) => res.json(consolView(req, await removeHouse(id(req), Number(req.params.jobId), req.user)))));
+r.post('/consols/:id/status', h(async (req, res) => res.json(consolView(req, await setConsolStatus(id(req), req.body, req.user)))));
+r.post('/consols/:id/apply-costs', h(async (req, res) => res.json(consolView(req, await applyCosts(id(req), req.user)))));
+r.get('/consols/:id/manifest.pdf', h(async (req, res) => {
+  const pdf = await manifestPdf(id(req));
+  const c = await one('SELECT ref FROM consols WHERE id=$1', [id(req)]);
+  res.setHeader('content-type', 'application/pdf');
+  res.setHeader('content-disposition', `inline; filename="manifest-${c.ref}.pdf"`);
+  res.end(pdf);
+}));
 r.put('/jobs/:id', h(async (req, res) => res.json(await updateJob(id(req), req.body))));
 r.put('/jobs/:id/owner', h(async (req, res) => {
   const owner = req.body.user_id ? Number(req.body.user_id) : null;

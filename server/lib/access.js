@@ -110,6 +110,22 @@ export const ROUTES = {
   'GET /jobs': { perm: 'jobs.view' },
   'GET /jobs/cutoffs': { perm: 'jobs.view' },
   'GET /jobs/:id': { perm: 'jobs.view', via: 'job' },
+  'PUT /jobs/:id/pieces': { perm: 'jobs.manage', via: 'job' },
+  // consolidation spans everyone's jobs, so it also needs data.all (all: true)
+  'GET /consols': { perm: 'jobs.view', all: true },
+  'POST /consols': { perm: 'jobs.manage', all: true },
+  'GET /consols/plan': { perm: 'jobs.manage', all: true, costs: true },
+  'POST /consols/plan/review': { perm: 'jobs.manage', all: true },
+  'POST /consols/plan/accept': { perm: 'jobs.manage', all: true, costs: true },
+  'GET /consols/:id': { perm: 'jobs.view', all: true },
+  'PUT /consols/:id': { perm: 'jobs.manage', all: true },
+  'DELETE /consols/:id': { perm: 'jobs.manage', all: true },
+  'POST /consols/:id/houses': { perm: 'jobs.manage', all: true },
+  'PUT /consols/:id/houses/:jobId': { perm: 'jobs.manage', all: true },
+  'DELETE /consols/:id/houses/:jobId': { perm: 'jobs.manage', all: true },
+  'POST /consols/:id/status': { perm: 'jobs.manage', all: true },
+  'POST /consols/:id/apply-costs': { perm: 'jobs.manage', all: true, costs: true },
+  'GET /consols/:id/manifest.pdf': { perm: 'jobs.view', all: true },
   'PUT /jobs/:id': { perm: 'jobs.manage', via: 'job' },
   'PUT /jobs/:id/owner': { perm: 'jobs.manage', via: 'job' },
   'POST /jobs/:id/milestone': { perm: 'jobs.manage', via: 'job' },
@@ -215,6 +231,7 @@ export async function authorize(req, res, next) {
     const ok = perm === 'any' || (Array.isArray(perm) ? perm.some((p) => can(perms, p)) : can(perms, perm));
     if (!ok) return deny(res);
     if (costs && !can(perms, 'costs.view')) return deny(res, "Your role doesn't show buy rates or margins.");
+    if (m.rule.all && !can(perms, 'data.all')) return deny(res, "Consolidation covers everyone's jobs, so it needs a role that sees all records.");
     const all = can(perms, 'data.all');
     const id = Number(req.path.split('/')[2]);
 

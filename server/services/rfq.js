@@ -1,10 +1,11 @@
 // RFQ lifecycle: create, invite agents, send, remind, compare, award.
 import { ownRfqSql, andOwn } from '../lib/access.js';
-import { q, one, tx } from '../db.js';
+import { q, one, tx, currentTenant } from '../db.js';
 import { randomTag } from '../lib/crypto.js';
 import { getMailbox, sendMail } from './mail.js';
 import { rfqEmail, reminderEmail, counterEmail, awardEmail, regretEmail } from './templates.js';
-import { compare } from '../engines/costing.js';
+import { compare, convert, quoteTotals } from '../engines/costing.js';
+import { chargeProfile, missingCharges, missingChargesMessage } from '../engines/chargeCheck.js';
 import { getFx } from './settings.js';
 import { audit } from './audit.js';
 
@@ -118,7 +119,47 @@ export async function loadRfq(id) {
 export async function compareRfq(id, currency) {
   const data = await loadRfq(id);
   const fx = await getFx();
-  return compare(data.rfq, data.invites, data.quotes, fx, currency || fx.base);
+  const cmp = compare(data.rfq, data.invites, data.quotes, fx, currency || fx.base);
+  // missing-charge check: like-for-like totals
+  const profile = await chargeProfileCached();
+  const toCur = (v) => { try { return convert(v, fx.base, cmp.currency, fx); } catch { return 0; } };
+  for (const col of cmp.columns) {
+    if (col.status !== 'quoted') continue;
+    const m = missingCharges(col.legs, data.rfq.mode, profile, `${col.quote.remarks || ''} ${col.quote.exclusions || ''}`);
+    col.missing = m.missing.map((x) => ({ ...x, estimate: x.estimate === null ? null : Math.round(toCur(x.estimate) * 100) / 100 }));
+    col.missing_estimate = Math.round(toCur(m.estimate) * 100) / 100;
+    col.like_for_like = Math.round((col.total + col.missing_estimate) * 100) / 100;
+    if (m.missing.length) {
+      col.flags.push({ type: 'missing_charge', text: `Missing: ${m.missing.map((x) => x.name).join(', ')}` });
+      col.ask_message = missingChargesMessage(m.missing);
+    }
+  }
+  const quoted = cmp.columns.filter((c) => c.status === 'quoted');
+  const cheapest = (k) => quoted.reduce((b, c) => (b === null || c[k] < b[k] ? c : b), null);
+  const a = cheapest('total');
+  const b = cheapest('like_for_like');
+  if (a && b && a !== b) cmp.like_for_like_note = `${a.invite.agent_company || 'The cheapest quote'} is cheapest as quoted, but with the usual missing charges added ${b.invite.agent_company || 'another agent'} is cheaper.`;
+  return cmp;
+}
+
+// usual charges per mode and leg, learnt from the last 18 months of agent quotes (cached 30 min)
+const profileCache = new Map();
+async function chargeProfileCached() {
+  const t = currentTenant();
+  const hit = profileCache.get(t?.id);
+  if (hit && Date.now() - hit.at < 30 * 60 * 1000) return hit.profile;
+  const fx = await getFx();
+  const rows = await q(`SELECT q.id, r.mode, r.gross_weight_kg, r.volume_cbm, r.containers, r.packages, r.package_type
+    FROM agent_quotes q JOIN rfqs r ON r.id=q.rfq_id WHERE NOT q.superseded AND NOT q.declined AND q.created_at > now() - interval '18 months' LIMIT 3000`);
+  const lines = rows.length ? await q('SELECT * FROM quote_lines WHERE agent_quote_id = ANY($1)', [rows.map((r) => r.id)]) : [];
+  const samples = [];
+  for (const r of rows) {
+    const t2 = quoteTotals({ lines: lines.filter((l) => l.agent_quote_id === r.id) }, r, fx);
+    for (const [leg, v] of Object.entries(t2.legs)) samples.push({ mode: r.mode, leg, lines: v.lines });
+  }
+  const profile = chargeProfile(samples);
+  profileCache.set(t?.id, { at: Date.now(), profile });
+  return profile;
 }
 
 async function ctx(inviteId) {

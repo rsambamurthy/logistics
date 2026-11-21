@@ -190,7 +190,7 @@ function CounterModal({ invite, onClose, onDone }) {
   const [msg, setMsg] = useState('Your rates are higher than other offers we have received. Could you please revise and share your best rate?');
   const [busy, run] = useAction();
   return (
-    <Modal title={`Counter-offer to ${invite.agent_company}`} onClose={onClose} footer={<Button busy={busy} onClick={() => run('x', async () => { await api.post(`/invites/${invite.id}/counter`, { message: msg }); onDone(); }, 'Counter-offer sent')}>Send email</Button>}>
+    <Modal title={`Counter-offer to ${invite.agent_company}`} onClose={onClose} footer={<Button busy={busy} onClick={() => run('x', async () => { await api.post(`/invites/${invite.id}/counter`, { message: col.ask_message }); onDone(); }, 'Counter-offer sent')}>Send email</Button>}>
       <Field label="Message (sent in the same email thread)"><Textarea rows={6} value={msg} onChange={(e) => setMsg(e.target.value)} /></Field>
     </Modal>
   );
@@ -377,12 +377,22 @@ function CompareTab({ rfq, selection, setSelection, goQuote }) {
               </tr>
             ))}
             <tr className="tot"><td>Total (quoted legs)</td>{cols.map((col) => <td key={col.invite.id}>{col.total !== null ? money(col.total) : ''}</td>)}</tr>
+            {cols.some((col) => col.missing?.length) && (
+              <tr><td>Missing charges<div className="small muted">usually quoted on {rfq.mode}</div></td>{cols.map((col) => (
+                <td key={col.invite.id} className="small">
+                  {(col.missing || []).map((m) => <div key={m.leg + m.code} title={m.note}>⚠ {m.name}{m.estimate ? <span className="muted"> ~{money(m.estimate)}</span> : ''}</div>)}
+                  {col.missing?.length > 0 && <AskAgent col={col} />}
+                </td>
+              ))}</tr>
+            )}
+            {cols.some((col) => col.missing_estimate > 0) && <tr className="tot"><td>Like-for-like total<div className="small muted">with estimated missing charges</div></td>{cols.map((col) => <td key={col.invite.id}>{col.like_for_like !== undefined && col.status === 'quoted' ? money(col.like_for_like) : ''}</td>)}</tr>}
             <tr><td>Transit / free days</td>{cols.map((col) => <td key={col.invite.id} className="small">{col.quote ? `${col.quote.transit_days ?? '—'}d / ${col.quote.free_days ?? '—'}` : ''}</td>)}</tr>
             <tr><td>Valid till</td>{cols.map((col) => <td key={col.invite.id} className="small">{col.quote ? fmtDate(col.quote.valid_until) : ''}</td>)}</tr>
             <tr><td>Flags</td>{cols.map((col) => <td key={col.invite.id} className="small">{col.flags.map((f, i) => <div key={i} className="flag">⚠ {f.text}</div>)}</td>)}</tr>
           </tbody>
         </table>
       </div>
+      {cmp.like_for_like_note && <div className="alert alert-amber small">{cmp.like_for_like_note}</div>}
       <div className="row between selbar">
         <div>Selected cost: <b>{money(selTotal, cmp.currency)}</b> · {Object.keys(selection).length}/{cmp.legs.length} legs covered</div>
         <Button onClick={goQuote} disabled={!Object.keys(selection).length}>Build customer quote →</Button>
@@ -408,4 +418,12 @@ function ShipmentTab({ data, reload }) {
       <ShipmentForm value={f} onChange={setF} parties={parties.data || []} mailboxes={mailboxes.data || []} />
     </Card>
   );
+}
+
+/** Ask an agent to confirm the charges missing from their quote (sent in the RFQ thread). */
+function AskAgent({ col }) {
+  const [busy, run] = useAction();
+  const [sent, setSent] = useState(false);
+  if (sent) return <div className="ok">Asked</div>;
+  return <button type="button" className="link" disabled={busy === 'ask'} onClick={() => run('ask', async () => { await api.post(`/invites/${col.invite.id}/counter`, { message: msg }); setSent(true); }, 'Question sent to the agent')}>Ask the agent</button>;
 }

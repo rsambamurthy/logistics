@@ -71,3 +71,19 @@ test('invoice check: extras, over-charges and arithmetic', () => {
   assert.equal(ok.status, 'ok');
   assert.equal(ok.leakage, 0);
 });
+
+import { chargeProfile, missingCharges } from '../engines/chargeCheck.js';
+test('missing-charge check: usual list, history, all-in', () => {
+  const legs = { origin_charges: { lines: [{ charge_code: 'OTHC', description: 'THC', converted: 100 }] }, destination_charges: { lines: [{ charge_code: 'DTHC', description: 'THC', converted: 120 }] } };
+  const r = missingCharges(legs, 'FCL', {});
+  assert.deepEqual(r.missing.map((m) => m.code).sort(), ['DO', 'DOC', 'SEAL']);
+  assert.equal(r.estimate, 0); // no history: no estimate
+  const samples = Array.from({ length: 6 }, () => ({ mode: 'FCL', leg: 'origin_charges', lines: [{ charge_code: 'OTHC', converted: 100 }, { charge_code: 'DOC', converted: 50 }, { charge_code: 'VGM', converted: 20 }] }));
+  const prof = chargeProfile(samples);
+  const h = missingCharges({ origin_charges: legs.origin_charges }, 'FCL', prof);
+  assert.deepEqual(h.missing.map((m) => [m.code, m.estimate]), [['DOC', 50], ['VGM', 20]]);
+  assert.equal(h.estimate, 70);
+  const allIn = missingCharges({ origin_charges: { lines: [{ charge_code: 'OTHC', description: 'Origin charges all-in', converted: 300 }] } }, 'FCL', prof);
+  assert.equal(allIn.estimate, 0);
+  assert.ok(allIn.missing.every((m) => /all-in/.test(m.note)));
+});

@@ -368,3 +368,18 @@ ALTER TABLE jobs ADD COLUMN IF NOT EXISTS invoice_currency TEXT;
 ALTER TABLE jobs ADD COLUMN IF NOT EXISTS due_date DATE;
 ALTER TABLE jobs ADD COLUMN IF NOT EXISTS paid_at DATE;
 ALTER TABLE agents ADD COLUMN IF NOT EXISTS credit_days INT;
+
+-- 24. History import: batches that can be undone
+CREATE TABLE IF NOT EXISTS import_batches (
+  id SERIAL PRIMARY KEY,
+  kind TEXT NOT NULL,
+  filename TEXT,
+  counts JSONB,
+  created_by INT,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  undone_at TIMESTAMPTZ
+);
+ALTER TABLE rfqs ADD COLUMN IF NOT EXISTS import_batch_id INT;
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS import_batch_id INT;
+ALTER TABLE agents ADD COLUMN IF NOT EXISTS import_batch_id INT;
+CREATE INDEX IF NOT EXISTS rfqs_import_batch ON rfqs(import_batch_id) WHERE import_batch_id IS NOT NULL;

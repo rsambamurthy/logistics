@@ -270,7 +270,7 @@ export async function followUpQuote(quoteId) {
   return true;
 }
 
-export const LOST_REASONS = ['Price too high', 'Lost to a competitor', 'Transit time / routing', 'Slow response', 'Shipment cancelled or postponed', 'No reply from customer', 'Other'];
+export { LOST_REASONS } from '../engines/historyImport.js';
 
 export async function markLost(quoteId, { reason, note, competitor_price }) {
   const quote = await one('SELECT * FROM customer_quotes WHERE id=$1', [quoteId]);

@@ -1,6 +1,7 @@
 // Planning agent services: instant estimate, mode advice, lane volume forecast, rate-card renewals and
 // customer payment risk. The maths lives in engines/planning.js; this file only gathers the data.
 import { q, one, currentTenant } from '../db.js';
+import { learningCache } from '../lib/learningCache.js';
 import { laneOf } from '../engines/agentRank.js';
 import { quoteTotals, shipmentMetrics, convert } from '../engines/costing.js';
 import { priceFromCards, cardMatches, cardLines } from '../engines/ratecards.js';
@@ -24,7 +25,7 @@ export function freightUnits(rfq) {
 const unitName = (mode) => (mode === 'FCL' ? 'container' : mode === 'AIR' ? 'kg' : 'W/M');
 
 // ---------------------------------------------------------------- quote history (cached)
-const histCache = new Map();
+const histCache = learningCache();
 /** Every agent quote of the last 18 months as { rfq_id, mode, lane, leg, total, units, transit_days } in the base currency. */
 async function quoteHistory() {
   const t = currentTenant();

@@ -1,12 +1,13 @@
 // Smart agent selection: builds each partner agent's history from past RFQs and ranks them for a
 // new request (engines/agentRank.js). Cached briefly per company.
 import { q } from '../db.js';
+import { learningCache } from '../lib/learningCache.js';
 import { currentTenant } from '../db.js';
 import { rankAgents, laneOf } from '../engines/agentRank.js';
 import { quoteTotals } from '../engines/costing.js';
 import { getFx } from './settings.js';
 
-const cache = new Map();
+const cache = learningCache();
 const TTL = 10 * 60 * 1000;
 export const clearAgentHistory = () => cache.delete(currentTenant()?.id);
 

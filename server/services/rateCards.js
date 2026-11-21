@@ -1,6 +1,6 @@
 // Rate cards: stored buy rates (own or a vendor's) that can price an RFQ without emailing anyone.
 import * as XLSX from 'xlsx';
-import { sheetRows } from '../lib/sheets.js';
+import { sheetRows, normaliseRows, toDate, num } from '../lib/sheets.js';
 import { q, one, tx } from '../db.js';
 import { priceFromCards, legPlaces } from '../engines/ratecards.js';
 import { LEG_CODES, BASIS_CODES, CHARGE_CODES, normaliseCharge, normaliseBasis, legName, MODES, normalisePackage, PACKAGE_TYPES } from '../engines/charges.js';
@@ -172,20 +172,8 @@ export function templateWorkbook() {
   return XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
 }
 
-const toDate = (v) => {
-  if (v === '' || v === null || v === undefined) return null;
-  if (v instanceof Date) return v.toISOString().slice(0, 10);
-  if (/^\d{4}-\d{2}-\d{2}T/.test(String(v))) return String(v).slice(0, 10); // dates from the spreadsheet reader
-  if (typeof v === 'number') return new Date(Math.round((v - 25569) * 864e5)).toISOString().slice(0, 10);
-  const s = String(v).trim();
-  const m = s.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/); // dd/mm/yyyy
-  if (m) return `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`;
-  return /^\d{4}-\d{2}-\d{2}/.test(s) ? s.slice(0, 10) : null;
-};
-const num = (v) => (v === '' || v === null || v === undefined || Number.isNaN(Number(v)) ? null : Number(v));
-
 export async function importRateCards(buffer) {
-  const rows = (await sheetRows(buffer, 'Rates')).map((r) => Object.fromEntries(Object.entries(r).map(([k, v]) => [String(k).trim().toLowerCase().replace(/\s+/g, '_'), typeof v === 'string' ? v.trim() : v])));
+  const rows = normaliseRows(await sheetRows(buffer, 'Rates'));
   const errors = [];
   const groups = new Map();
   rows.forEach((r, i) => {

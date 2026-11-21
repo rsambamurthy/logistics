@@ -31,6 +31,7 @@ import { createJobFromQuote, listJobs, loadJob, updateJob, setMilestone, sendBoo
 import { runDocCheck, getDocCheck } from '../services/documents.js';
 import { rfqPlanning, laneForecasts, rateCardRenewals, askForNewRates, paymentRisks, customerPaymentRisk, receivables, defaultDueDate } from '../services/insights.js';
 import { replyInsights } from '../services/replyForecast.js';
+import { historyTemplate, previewHistory, importHistory, listImports, undoImport } from '../services/historyImport.js';
 import { setDocRequirement, requestDocuments, getSi, saveSi, prefillSi, renderSiPdf, sendSi, readBl, uploadBl, sendBlToCustomer, customerDecision, replyAgentOnBl, setFileKind, onCustomerJobEmail } from '../services/documents.js';
 import { publicTracking, tenantOfToken, refreshJob, addTrackingNumber, removeTracking, setJobTracking, resetTrackLink, trackToken, notifyMilestone, providerList } from '../services/tracking.js';
 import { sendStoredFile } from '../lib/security.js';
@@ -308,6 +309,23 @@ r.post('/rfqs/:id/award', h(async (req, res) => res.json(await awardRfq(id(req),
 
 // ---------- rate cards ----------
 r.get('/rate-cards', h(async (req, res) => res.json(await listCards(req.query))));
+// ---------- history import ----------
+r.get('/history-template', h(async (req, res) => {
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.setHeader('Content-Disposition', 'attachment; filename="quayly-history-template.xlsx"');
+  res.send(historyTemplate());
+}));
+r.post('/history/preview', upload.single('file'), h(async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'Choose an Excel file' });
+  res.json(await previewHistory(req.file.buffer));
+}));
+r.post('/history/import', upload.single('file'), h(async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'Choose an Excel file' });
+  res.json(await importHistory(req.file.buffer, req.user, req.file.originalname));
+}));
+r.get('/history/imports', h(async (req, res) => res.json(await listImports())));
+r.post('/history/imports/:id/undo', h(async (req, res) => res.json(await undoImport(id(req), req.user))));
+
 r.get('/rate-cards-template', h(async (req, res) => {
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   res.setHeader('Content-Disposition', 'attachment; filename="rate-card-template.xlsx"');

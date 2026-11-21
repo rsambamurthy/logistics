@@ -2,6 +2,7 @@
 // schedule (so "not departed yet" is noticed without new tracking news). Results are kept on the
 // job; the desk sees shipments at risk and can warn the customer before they ask.
 import { q, one, currentTenant } from '../db.js';
+import { learningCache } from '../lib/learningCache.js';
 import { predictDelay, lanePunctuality } from '../engines/delayRisk.js';
 import { laneOf } from '../engines/agentRank.js';
 import { bestEta } from '../engines/tracking.js';
@@ -10,7 +11,7 @@ import { notifyMilestone } from './tracking.js';
 import { audit } from './audit.js';
 
 const OPEN = "('booking_requested','booked','departed')";
-const cache = new Map();
+const cache = learningCache();
 
 /** How punctual each lane / carrier was on finished jobs (cached 1 hour). */
 async function punctuality() {

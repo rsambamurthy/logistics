@@ -1,10 +1,11 @@
 // Win-probability margin: learns from this company's won and lost quotes (engines/winModel.js).
 import { q, one, currentTenant } from '../db.js';
+import { learningCache } from '../lib/learningCache.js';
 import { fitWinModel, adviseMargin } from '../engines/winModel.js';
 import { laneOf } from '../engines/agentRank.js';
 import { getSetting, getApprovalLevels } from './settings.js';
 
-const cache = new Map();
+const cache = learningCache();
 const TTL = 10 * 60 * 1000;
 
 /** Effective margin of the option the customer took (or the best-priced option when lost). */

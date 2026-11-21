@@ -289,3 +289,4 @@ ul.reasons li { margin: 2px 0; }
 .row-warn td { background: #fff7ed; }
 .grid.cols-3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px 14px; margin-bottom: 10px; }
 @media (max-width: 760px) { .grid.cols-3 { grid-template-columns: 1fr; } }
+ol.howto { margin: 0 0 12px; padding-left: 20px; line-height: 1.7; }

@@ -1,5 +1,6 @@
 // RFQ lifecycle: create, invite agents, send, remind, compare, award.
 import { ownRfqSql, andOwn } from '../lib/access.js';
+import { learningCache } from '../lib/learningCache.js';
 import { q, one, tx, currentTenant } from '../db.js';
 import { randomTag } from '../lib/crypto.js';
 import { getMailbox, sendMail } from './mail.js';
@@ -169,7 +170,7 @@ function smartCombination(cmp, rfq) {
 }
 
 // usual charges per mode and leg, learnt from the last 18 months of agent quotes (cached 30 min)
-const profileCache = new Map();
+const profileCache = learningCache();
 async function chargeProfileCached() {
   const t = currentTenant();
   const hit = profileCache.get(t?.id);

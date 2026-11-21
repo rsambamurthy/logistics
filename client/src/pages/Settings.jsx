@@ -7,6 +7,7 @@ import Agents from './Agents.jsx';
 import Customers from './Customers.jsx';
 import Subscription from './Subscription.jsx';
 import Activity from './Activity.jsx';
+import HistoryImport from './HistoryImport.jsx';
 import { Tenants, Plans } from './Platform.jsx';
 import { api } from '../api.js';
 import { useMeta } from '../components/meta.jsx';
@@ -28,6 +29,7 @@ const SECTIONS = [
   { key: 'company', label: 'Company', hint: 'Details printed on quotations', view: 'settings.manage' },
   { key: 'ai', label: 'AI', hint: 'Reading replies and enquiries', view: 'settings.manage' },
   { key: 'tracking', label: 'Tracking', hint: 'Live tracking and customer updates', view: 'settings.manage' },
+  { key: 'import-history', label: 'Import history', hint: 'Past enquiries, quotes and jobs from Excel', view: 'settings.manage' },
   { key: 'users', label: 'Users', hint: 'Who can sign in', view: 'users.manage' },
   { key: 'roles', label: 'Roles', hint: 'What each role can see and do', view: 'users.manage' },
   { key: 'subscription', label: 'Subscription', hint: 'Plan, usage and billing', view: 'billing.manage' },
@@ -68,6 +70,7 @@ export default function Settings({ user }) {
         {current.key === 'customers' && <Customers />}
         {current.key === 'users' && <><PageHeader title="Users" /><Users admin me={user} /></>}
         {current.key === 'roles' && <Roles />}
+        {current.key === 'import-history' && <HistoryImport />}
         </ReadOnly>
         {['ai', 'tracking', 'company', 'pricing'].includes(current.key) && (!s.data ? <Loading /> : (
           <>

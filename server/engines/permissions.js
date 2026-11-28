@@ -30,8 +30,8 @@ export const PERMISSION_GROUPS = [
     ],
   },
   {
-    name: 'Contacts',
-    items: [{ code: 'contacts.manage', label: 'Add and edit partner agents and customers' }],
+    name: 'Business Partners',
+    items: [{ code: 'partners.manage', label: 'Add and edit business partners (partner agents and customers)' }],
   },
   {
     name: 'Administration',
@@ -51,7 +51,7 @@ export const PERMISSION_GROUPS = [
 export const PERMISSIONS = PERMISSION_GROUPS.flatMap((g) => g.items);
 export const PERMISSION_CODES = PERMISSIONS.map((p) => p.code);
 
-const EVERYDAY = ['rfqs.view', 'rfqs.edit', 'quotes.prepare', 'quotes.send', 'quotes.decide', 'inbox.view', 'jobs.view', 'jobs.manage', 'costs.view', 'ratecards.manage', 'reports.view', 'contacts.manage', 'data.all'];
+const EVERYDAY = ['rfqs.view', 'rfqs.edit', 'quotes.prepare', 'quotes.send', 'quotes.decide', 'inbox.view', 'jobs.view', 'jobs.manage', 'costs.view', 'ratecards.manage', 'reports.view', 'partners.manage', 'data.all'];
 
 /** Built-in roles. They match how Quayly worked before roles could be changed; Admin cannot be edited. */
 export const SYSTEM_ROLES = [

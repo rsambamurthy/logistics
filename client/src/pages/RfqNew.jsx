@@ -30,7 +30,7 @@ export default function RfqNew() {
       requester_id: match?.id || x.requester_id,
       requester_role: match ? (match.is_agent && !match.is_customer ? 'agent' : 'customer') : x.requester_role,
     }));
-    toast(match || !r.customer_name ? 'Enquiry read. Please check the details.' : `Enquiry read. "${r.customer_name}" is not in your contacts yet.`);
+    toast(match || !r.customer_name ? 'Enquiry read. Please check the details.' : `Enquiry read. "${r.customer_name}" is not in your Business Partners yet.`);
   });
 
   const save = (send) => run(send ? 'send' : 'save', async () => {

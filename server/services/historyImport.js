@@ -227,7 +227,7 @@ export async function listImports() {
     FROM import_batches b LEFT JOIN users u ON u.id=b.created_by ORDER BY b.id DESC LIMIT 50`);
 }
 
-/** Undo an import: its enquiries, quotes and jobs go; contacts it created stay unless nothing else uses them. */
+/** Undo an import: its enquiries, quotes and jobs go; business partners it created stay unless nothing else uses them. */
 export async function undoImport(batchId, user) {
   const b = await one('SELECT * FROM import_batches WHERE id=$1', [batchId]);
   if (!b) throw err('Not found', 404);

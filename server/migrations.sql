@@ -383,3 +383,6 @@ ALTER TABLE rfqs ADD COLUMN IF NOT EXISTS import_batch_id INT;
 ALTER TABLE jobs ADD COLUMN IF NOT EXISTS import_batch_id INT;
 ALTER TABLE agents ADD COLUMN IF NOT EXISTS import_batch_id INT;
 CREATE INDEX IF NOT EXISTS rfqs_import_batch ON rfqs(import_batch_id) WHERE import_batch_id IS NOT NULL;
+
+-- 25. "Contacts" renamed to "Business Partners": permission code follows
+UPDATE roles SET permissions = array_replace(permissions, 'contacts.manage', 'partners.manage') WHERE 'contacts.manage' = ANY(permissions);

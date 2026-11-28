@@ -36,7 +36,7 @@ export default function HistoryImport() {
     toast(`Imported ${r.counts.enquiries} enquiries`);
   });
   const undo = (b) => {
-    if (!window.confirm(`Undo import #${b.id}? Its enquiries, agent quotes and jobs are removed. Contacts it added are kept if anything else uses them.`)) return;
+    if (!window.confirm(`Undo import #${b.id}? Its enquiries, agent quotes and jobs are removed. Business partners it added are kept if anything else uses them.`)) return;
     run(`undo${b.id}`, async () => { await api.post(`/history/imports/${b.id}/undo`); await list.reload(); }, 'Import undone');
   };
   const c = preview?.counts;

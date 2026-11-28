@@ -19,8 +19,8 @@ import ApprovalLevels from '../components/ApprovalLevels.jsx';
 const SECTIONS = [
   { group: 'Business Partners' },
   // view = permission to see the page (no page without it); edit = permission to change it (otherwise shown read-only)
-  { key: 'partner-agents', label: 'Partner agents', hint: 'Who you ask for rates', view: 'contacts.manage' },
-  { key: 'customers', label: 'Customers', hint: 'Who asks you for rates', view: 'contacts.manage' },
+  { key: 'partner-agents', label: 'Partner agents', hint: 'Who you ask for rates', view: 'partners.manage' },
+  { key: 'customers', label: 'Customers', hint: 'Who asks you for rates', view: 'partners.manage' },
   { group: 'Pricing' },
   { key: 'rate-cards', label: 'Rate cards', hint: 'Stored buy rates that price RFQs instantly', view: 'ratecards.manage' },
   { key: 'pricing', label: 'Pricing & FX', hint: 'Margins, tax, validity, exchange rates', view: 'settings.manage' },

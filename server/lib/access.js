@@ -41,8 +41,8 @@ export const ROUTES = {
   'POST /mailboxes/:id/test': { perm: 'settings.manage' },
   'POST /mailboxes/:id/poll': { perm: ['rfqs.view', 'inbox.view'] },
 
-  'POST /agents': { perm: 'contacts.manage' },
-  'PUT /agents/:id': { perm: 'contacts.manage' },
+  'POST /agents': { perm: 'partners.manage' },
+  'PUT /agents/:id': { perm: 'partners.manage' },
   'GET /agents-stats': { perm: 'rfqs.view' },
   'GET /agents/suggest': { perm: 'rfqs.edit' },
 

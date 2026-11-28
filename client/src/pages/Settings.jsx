@@ -15,9 +15,9 @@ import { ReadOnly, PageHeader, Card, Table, Button, Modal, FormGrid, Field, Inpu
 import RolePicker, { RolePills } from '../components/RolePicker.jsx';
 import ApprovalLevels from '../components/ApprovalLevels.jsx';
 
-// Settings holds everything that is not a transaction: contacts, pricing data and system setup.
+// Settings holds everything that is not a transaction: business partners, pricing data and system setup.
 const SECTIONS = [
-  { group: 'Contacts' },
+  { group: 'Business Partners' },
   // view = permission to see the page (no page without it); edit = permission to change it (otherwise shown read-only)
   { key: 'partner-agents', label: 'Partner agents', hint: 'Who you ask for rates', view: 'contacts.manage' },
   { key: 'customers', label: 'Customers', hint: 'Who asks you for rates', view: 'contacts.manage' },

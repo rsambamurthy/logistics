@@ -24,7 +24,7 @@ import ConsolDetail from './pages/ConsolDetail.jsx';
 import Track from './pages/Track.jsx';
 
 // Settings sections as sidebar groups (VendorGate style: administration pages live in the sidebar).
-const SETTINGS_ICONS = { Contacts: 'contacts', Pricing: 'pricing', System: 'config', 'Integrata admin': 'platform' };
+const SETTINGS_ICONS = { 'Business Partners': 'contacts', Pricing: 'pricing', System: 'config', 'Integrata admin': 'platform' };
 function settingsGroups(user) {
   const groups = [];
   for (const x of settingsSections(user)) {
